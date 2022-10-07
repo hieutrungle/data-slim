@@ -1,0 +1,15 @@
+numpy
+scipy
+matplotlib
+pandas
+xarray
+dask[complete]
+tensorflow
+tensorflow_addons
+tensorflow-compression
+tqdm
+scikit-learn
+scikit-image
+tensorly
+python-json-logger
+netcdf4
