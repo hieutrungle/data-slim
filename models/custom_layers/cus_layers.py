@@ -1,418 +1,417 @@
-import tensorflow as tf
-import tensorflow_compression as tfc
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+try:
+    import gdn
+    import cus_conv
+except:
+    from . import gdn, cus_conv
+import numpy as np
 
 
-class DownSamplingBlock(tf.keras.layers.Layer):
+class DownSamplingBlock(nn.Module):
     """Downsampling block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
+        super().__init__(**kwargs)
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        self.name = name
 
-        self.conv1 = tf.keras.layers.Conv2D(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.gdn = gdn.GDN(c_in)
+        self.conv0 = cus_conv.Conv2dSame(
+            c_in, c_out, kernel_size=kernel_size, stride=stride
         )
-        self.gdn = tfc.GDN()
 
-    def call(self, x):
+    def forward(self, x):
         x = self.gdn(x)
-        x = self.conv1(x)
+        x = self.conv0(x)
         return x
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
-
-class UpSamplingBlock(tf.keras.layers.Layer):
+class UpSamplingBlock(nn.Module):
     """Upsampling block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(
+        self, c_in, c_out, kernel_size, stride, padding=0, name=None, **kwargs
+    ):
+        super().__init__(**kwargs)
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        self.name = name
 
-        self.conv1 = tf.keras.layers.Conv2DTranspose(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.igdn = gdn.GDN(c_in, inverse=True)
+        self.conv1 = cus_conv.Conv2dTransposeSame(
+            c_in,
+            c_out,
+            kernel_size=kernel_size,
+            stride=stride,
+            # padding=padding,
+            # # output_padding=stride - 1,
         )
-        self.igdn = tfc.GDN(inverse=True)
 
-    def call(self, x):
+    def forward(self, x):
         x = self.igdn(x)
         x = self.conv1(x)
         return x
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
-
-class DownSamplingResBlock2D(tf.keras.layers.Layer):
+class DownSamplingResBlock2D(nn.Module):
     """Downsampling res block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        c_hidden = c_out * 4
+        self.gdn = gdn.GDN(c_in)
 
-        self.conv1 = tf.keras.layers.Conv2D(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.shortcut = cus_conv.Conv2dSame(c_in, c_out, kernel_size=1, stride=stride)
+        self.act = nn.GELU()
+        self.conv0 = cus_conv.Conv2dSame(
+            c_in, c_out, kernel_size=kernel_size, stride=stride
         )
-        self.conv2 = tf.keras.layers.Conv2D(
-            num_channels * 4,
-            kernel_size=kernel_size,
-            strides=1,
-            padding="same",
-            activation="gelu",
-        )
-        self.conv3 = tf.keras.layers.Conv2D(
-            num_channels,
-            kernel_size=1,
-            strides=1,
-            padding="same",
-        )
-        self.cells = [self.conv1, self.conv2, self.conv3]
-        self.shortcut = tf.keras.layers.Conv2D(
-            num_channels,
-            kernel_size=1,
-            strides=strides,
-            padding="same",
-        )
-        self.gdn = tfc.GDN()
+        self.conv1 = cus_conv.Conv2dSame(c_out, c_hidden, kernel_size=1, stride=1)
+        self.conv2 = cus_conv.Conv2dSame(c_hidden, c_out, kernel_size=1, stride=1)
+        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
 
-    def call(self, x):
+    def forward(self, x):
+        x = self.gdn(x)
         x_shortcut = self.shortcut(x)
         for cell in self.cells:
             x = cell(x)
-        x = self.gdn(x)
-
         return x + x_shortcut
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
-
-class UpSamplingResBlock2D(tf.keras.layers.Layer):
+class UpSamplingResBlock2D(nn.Module):
     """Upsampling res block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        c_hidden = c_out * 4
 
-        self.conv1 = tf.keras.layers.Conv2DTranspose(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.igdn = gdn.GDN(c_in, inverse=True)
+        self.shortcut = cus_conv.Conv2dTransposeSame(
+            c_in, c_out, kernel_size=1, stride=stride
         )
-        self.conv2 = tf.keras.layers.Conv2DTranspose(
-            num_channels * 4,
-            kernel_size=kernel_size,
-            strides=1,
-            padding="same",
-            activation="gelu",
+        self.act = nn.GELU()
+        self.conv0 = cus_conv.Conv2dTransposeSame(
+            c_in, c_out, kernel_size=kernel_size, stride=stride
         )
-        self.conv3 = tf.keras.layers.Conv2DTranspose(
-            num_channels,
-            kernel_size=1,
-            strides=1,
-            padding="same",
+        self.conv1 = cus_conv.Conv2dTransposeSame(
+            c_out, c_hidden, kernel_size=1, stride=1
         )
-        self.cells = [self.conv1, self.conv2, self.conv3]
-        self.shortcut = tf.keras.layers.Conv2DTranspose(
-            num_channels,
-            kernel_size=1,
-            strides=strides,
-            padding="same",
+        self.conv2 = cus_conv.Conv2dTransposeSame(
+            c_hidden, c_out, kernel_size=1, stride=1
         )
-        self.igdn = tfc.GDN(inverse=True)
+        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
 
-    def call(self, x):
+    def forward(self, x):
+        x = self.igdn(x)
         x_shortcut = self.shortcut(x)
         for cell in self.cells:
             x = cell(x)
-        x = self.igdn(x)
         return x + x_shortcut
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
-
-class DownSamplingResBlock3D(tf.keras.layers.Layer):
+class DownSamplingResBlock3D(nn.Module):
     """Downsampling res block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        c_hidden = c_out * 4
 
-        self.conv1 = tf.keras.layers.Conv3D(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.gdn = gdn.GDN(c_in)
+        self.shortcut = cus_conv.Conv3dSame(c_in, c_out, kernel_size=1, stride=stride)
+        self.act = nn.GELU()
+        self.conv1 = cus_conv.Conv3dSame(
+            c_in, c_out, kernel_size=kernel_size, stride=stride
         )
-        self.conv2 = tf.keras.layers.Conv3D(
-            num_channels * 4,
-            kernel_size=kernel_size,
-            strides=1,
-            padding="same",
-            activation="gelu",
-        )
-        self.conv3 = tf.keras.layers.Conv3D(
-            num_channels,
-            kernel_size=1,
-            strides=1,
-            padding="same",
-        )
-        self.cells = [self.conv1, self.conv2, self.conv3]
-        self.shortcut = tf.keras.layers.Conv3D(
-            num_channels,
-            kernel_size=1,
-            strides=strides,
-            padding="same",
-        )
-        self.gdn = tfc.GDN()
+        self.conv2 = cus_conv.Conv3dSame(c_out, c_hidden, kernel_size=1, stride=1)
+        self.conv3 = cus_conv.Conv3dSame(c_hidden, c_out, kernel_size=1, stride=1)
+        self.cells = [self.conv1, self.conv2, self.act, self.conv3]
 
-    def call(self, x):
+    def forward(self, x):
+        x = self.gdn(x)
         x_shortcut = self.shortcut(x)
         for cell in self.cells:
             x = cell(x)
         x = x + x_shortcut
-        x = self.gdn(x)
         return x
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
-
-class UpSamplingResBlock3D(tf.keras.layers.Layer):
+class UpSamplingResBlock3D(nn.Module):
     """Upsampling res block"""
 
-    def __init__(self, num_channels, kernel_size, strides, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.num_channels = num_channels
+    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
         self.kernel_size = kernel_size
-        self.strides = strides
+        self.stride = stride
+        c_hidden = c_out * 4
 
-        self.conv1 = tf.keras.layers.Conv3DTranspose(
-            num_channels, kernel_size=1, strides=strides, padding="same"
+        self.igdn = gdn.GDN(c_in, inverse=True)
+        self.shortcut = cus_conv.Conv3dTransposeSame(
+            c_in, c_out, kernel_size=1, stride=stride
         )
-        self.conv2 = tf.keras.layers.Conv3DTranspose(
-            num_channels * 4,
-            kernel_size=kernel_size,
-            strides=1,
-            padding="same",
-            activation="gelu",
+        self.act = nn.GELU()
+        self.conv0 = cus_conv.Conv3dTransposeSame(
+            c_in, c_out, kernel_size=kernel_size, stride=stride
         )
-        self.conv3 = tf.keras.layers.Conv3DTranspose(
-            num_channels,
-            kernel_size=1,
-            strides=1,
-            padding="same",
+        self.conv1 = cus_conv.Conv3dTransposeSame(
+            c_out, c_hidden, kernel_size=1, stride=1
         )
-        self.cells = [self.conv1, self.conv2, self.conv3]
-        self.shortcut = tf.keras.layers.Conv3DTranspose(
-            num_channels,
-            kernel_size=1,
-            strides=strides,
-            padding="same",
+        self.conv2 = cus_conv.Conv3dTransposeSame(
+            c_hidden, c_out, kernel_size=1, stride=1
         )
-        self.igdn = tfc.GDN(inverse=True)
+        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
 
-    def call(self, x):
+    def forward(self, x):
+        x = self.igdn(x)
         x_shortcut = self.shortcut(x)
         for cell in self.cells:
             x = cell(x)
         x = x + x_shortcut
-        x = self.igdn(x)
         return x
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_channels": self.num_channels,
-                "kernel_size": self.kernel_size,
-                "strides": self.strides,
-            }
-        )
-        return config
 
+class ForwardConv1d(nn.Module):
+    """Forward Conv1d"""
 
-class ForwardConv1d(tf.keras.layers.Layer):
-    """Forward MLP"""
-
-    def __init__(self, in_shape, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.in_shape = in_shape
-
-        self.flatten = tf.keras.layers.Flatten(name="enc_flatten")
-        self.gdn = tfc.GDN(name="enc_activation")
-        self.conv1d = tf.keras.layers.Conv1D(
-            filters=1,
-            kernel_size=tf.math.reduce_prod(in_shape),
-            padding="same",
-            name="enc_conv1d",
+    def __init__(
+        self, c_in, c_out, c_hidden, kernel_size=1, stride=1, name=None, **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.name = name
+        self.gdn = gdn.GDN(c_in)
+        self.flatten = nn.Flatten()
+        self.conv1d = cus_conv.Conv1dSame(
+            c_hidden, c_out, kernel_size=kernel_size, stride=stride
         )
 
-    def __call__(self, x):
+    def forward(self, x):
+        # (B, C, ...)
         x = self.gdn(x)
+        # (B, C)
         x = self.flatten(x)
-        x = tf.expand_dims(x, axis=-1)
+        # (B, C, 1)
+        x = torch.unsqueeze(x, axis=-1)
         x = self.conv1d(x)
         return x
 
-    def call(self, x):
-        return self.__call__(x)
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "in_shape": self.in_shape,
-            }
-        )
-        return config
-
-
-class InverseConv1d(tf.keras.layers.Layer):
-    """Inverse MLP"""
-
-    def __init__(self, conv_shape, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.conv_shape = conv_shape
-        # height, width, latent_dim = conv_shape
-
-        self.conv1d = tf.keras.layers.Conv1DTranspose(
-            filters=1,
-            kernel_size=tf.math.reduce_prod(conv_shape),
-            padding="same",
-            name="dec_conv1d",
-        )
-        self.reshape = tf.keras.layers.Reshape(conv_shape, name="dec_reshape")
-        self.igdn = tfc.GDN(inverse=True, name="dec_activation")
-
-    def __call__(self, x):
-
-        x = self.dense(x)
-        x = self.reshape(x)
-        x = self.igdn(x)
-        return x
-
-    def call(self, x):
-        return self.__call__(x)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "conv_shape": self.conv_shape,
-            }
-        )
-        return config
-
-
-class ForwardMLP(tf.keras.layers.Layer):
+class ForwardMLP(nn.Module):
     """Forward MLP"""
 
-    def __init__(self, in_shape, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.in_shape = in_shape
+    def __init__(self, c_in, c_out, c_hidden, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self.gdn = gdn.GDN(c_in)
+        self.flatten = nn.Flatten()
+        self.linear = nn.Linear(c_hidden, c_out)
 
-        self.flatten = tf.keras.layers.Flatten(name="enc_flatten")
-        self.gdn = tfc.GDN(name="enc_activation")
-        self.dense = tf.keras.layers.Dense(
-            tf.math.reduce_prod(in_shape), name="enc_dense"
-        )
-
-    def __call__(self, x):
+    def forward(self, x):
+        # (B, C, ...)
         x = self.gdn(x)
+        # (B, C)
         x = self.flatten(x)
-        x = self.dense(x)
+        x = self.linear(x)
         return x
 
-    def call(self, x):
-        return self.__call__(x)
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "in_shape": self.in_shape,
-            }
+def _test_res_down_2d():
+    print(f"\nTest DownSamplingResBlock2D")
+    input_size = (2, 3, 6, 6)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    downsampling_res_block = DownSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
+    )
+    results = downsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
+    stride = 2
+    downsampling_res_block = DownSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
+    )
+    results = downsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    input_size = (2, 3, 7, 7)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    downsampling_res_block = DownSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
+    )
+    results = downsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
+    stride = 2
+    downsampling_res_block = DownSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
+    )
+    results = downsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+
+def _test_res_up_2d():
+    print(f"\nTest UpSamplingResBlock2D")
+    input_size = (2, 3, 6, 6)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    upsampling_res_block = UpSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
+    )
+    results = upsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
+    stride = 2
+    upsampling_res_block = UpSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
+    )
+    results = upsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    input_size = (2, 3, 7, 7)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    upsampling_res_block = UpSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
+    )
+    results = upsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
+    stride = 2
+    upsampling_res_block = UpSamplingResBlock2D(
+        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
+    )
+    results = upsampling_res_block(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+
+def _test_res_2d():
+    print(f"\nTest UpSamplingResBlock2D and DownSamplingResBlock2D")
+    x = torch.randn(1, 3, 64, 64)  # (B, C, H, W)
+    stride = 2
+    y = x
+    for i in range(3):
+        downsampling_res_block = DownSamplingResBlock2D(
+            y.shape[1], 5, kernel_size=5, stride=stride, name="downsampling_res_block"
         )
-        return config
+        y = downsampling_res_block(y)
+        print(f"y.shape: {y.shape}")
 
-
-class InverseMLP(tf.keras.layers.Layer):
-    """Inverse MLP"""
-
-    def __init__(self, conv_shape, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.conv_shape = conv_shape
-        # height, width, latent_dim = conv_shape
-
-        self.dense = tf.keras.layers.Dense(
-            tf.math.reduce_prod(conv_shape), name="dec_dense"
+    x_hat = y
+    for i in range(3):
+        upsampling_res_block = UpSamplingResBlock2D(
+            x_hat.shape[1], 3, kernel_size=5, stride=stride, name="upsampling_res_block"
         )
-        self.reshape = tf.keras.layers.Reshape(conv_shape, name="dec_reshape")
-        self.igdn = tfc.GDN(inverse=True, name="dec_activation")
+        x_hat = upsampling_res_block(x_hat)
+        print(f"x_hat.shape: {x_hat.shape}")
 
-    def __call__(self, x):
+    print(f"input shape: {x.shape}; stride: {stride}; results.shape: {x_hat.shape}")
 
-        x = self.dense(x)
-        x = self.reshape(x)
-        x = self.igdn(x)
-        return x
 
-    def call(self, x):
-        return self.__call__(x)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "conv_shape": self.conv_shape,
-            }
+def _test_res_3d():
+    print(f"\nTest UpSamplingResBlock3D and DownSamplingResBlock3D")
+    x = torch.randn(1, 3, 64, 64, 64)  # (B, C, H, W)
+    stride = 2
+    y = x
+    for i in range(3):
+        downsampling_res_block = DownSamplingResBlock3D(
+            y.shape[1], 5, kernel_size=5, stride=stride, name="downsampling_res_block"
         )
-        return config
+        y = downsampling_res_block(y)
+        print(f"y.shape: {y.shape}")
+
+    x_hat = y
+    for i in range(3):
+        upsampling_res_block = UpSamplingResBlock3D(
+            x_hat.shape[1], 3, kernel_size=5, stride=stride, name="upsampling_res_block"
+        )
+        x_hat = upsampling_res_block(x_hat)
+        print(f"x_hat.shape: {x_hat.shape}")
+
+    print(f"input shape: {x.shape}; stride: {stride}; results.shape: {x_hat.shape}")
+
+
+def _test_forward_conv():
+    print(f"\nTest Forward1D")
+    input_size = (2, 3, 6, 6)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    forward_1d = ForwardConv1d(
+        a.shape[1],
+        np.prod(input_size[1:]),
+        c_hidden=np.prod(input_size[1:]),
+        kernel_size=3,
+        stride=stride,
+        name="forward_1d",
+    )
+    results = forward_1d(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
+    stride = 2
+    forward_1d = ForwardConv1d(
+        a.shape[1],
+        np.prod(input_size[1:]),
+        c_hidden=np.prod(input_size[1:]),
+        kernel_size=3,
+        stride=stride,
+        name="forward_1d",
+    )
+    results = forward_1d(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    input_size = (2, 3, 7, 7)
+    a = torch.randn(input_size)  # (B, C, H, W)
+    stride = 1
+    forward_1d = ForwardConv1d(
+        a.shape[1],
+        np.prod(input_size[1:]),
+        c_hidden=np.prod(input_size[1:]),
+        kernel_size=3,
+        stride=stride,
+        name="forward_1d",
+    )
+    results = forward_1d(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
+    stride = 2
+    forward_1d = ForwardConv1d(
+        a.shape[1],
+        np.prod(input_size[1:]),
+        c_hidden=np.prod(input_size[1:]),
+        kernel_size=3,
+        stride=stride,
+        name="forward_1d",
+    )
+    results = forward_1d(a)
+    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+
+
+def main():
+
+    _test_res_down_2d()
+    _test_res_up_2d()
+    _test_res_2d()
+    _test_res_3d()
+    _test_forward_conv()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,16 +1,17 @@
 import torch
 from torch import nn
 from torch.autograd import Function
+from torch import Tensor
 
 
 class LowerBound(Function):
     @staticmethod
     def forward(ctx, inputs, bound):
-        b = torch.ones(inputs.size(), device=inputs.device)*bound
+        b = torch.ones(inputs.size(), device=inputs.device) * bound
         b = b.to(inputs.device)
         ctx.save_for_backward(inputs, b)
         return torch.max(inputs, b)
-  
+
     @staticmethod
     def backward(ctx, grad_output):
         inputs, b = ctx.saved_tensors
@@ -26,34 +27,35 @@ class GDN(nn.Module):
     """Generalized divisive normalization layer.
     y[i] = x[i] / sqrt(beta[i] + sum_j(gamma[j, i] * x[j]^2))
     """
-  
-    def __init__(self,
-                 ch,
-                 device,
-                 inverse=False,
-                 beta_min=1e-6,
-                 gamma_init=.1,
-                 reparam_offset=2**-18):
+
+    def __init__(
+        self,
+        channels,
+        inverse=False,
+        beta_min=1e-6,
+        gamma_init=0.1,
+        reparam_offset=2**-18,
+    ):
         super(GDN, self).__init__()
         self.inverse = inverse
         self.beta_min = beta_min
         self.gamma_init = gamma_init
-        self.reparam_offset = torch.tensor([reparam_offset], device=device)
+        self.reparam_offset = torch.tensor([reparam_offset])
 
-        self.build(ch, torch.device(device))
-  
-    def build(self, ch, device):
+        self.build(channels)
+
+    def build(self, channels):
         self.pedestal = self.reparam_offset**2
-        self.beta_bound = (self.beta_min + self.reparam_offset**2)**.5
+        self.beta_bound = (self.beta_min + self.reparam_offset**2) ** 0.5
         self.gamma_bound = self.reparam_offset
 
         # Create beta param
-        beta = torch.sqrt(torch.ones(ch, device=device)+self.pedestal)
+        beta = torch.sqrt(torch.ones(channels) + self.pedestal)
         self.beta = nn.Parameter(beta)
 
         # Create gamma param
-        eye = torch.eye(ch, device=device)
-        g = self.gamma_init*eye
+        eye = torch.eye(channels)
+        g = self.gamma_init * eye
         g = g + self.pedestal
         gamma = torch.sqrt(g)
         self.gamma = nn.Parameter(gamma)
@@ -62,24 +64,24 @@ class GDN(nn.Module):
         unfold = False
         if inputs.dim() == 5:
             unfold = True
-            bs, ch, d, w, h = inputs.size() 
-            inputs = inputs.view(bs, ch, d*w, h)
+            bs, channels, d, w, h = inputs.size()
+            inputs = inputs.view(bs, channels, d * w, h)
 
-        _, ch, _, _ = inputs.size()
+        _, channels, _, _ = inputs.size()
 
         # Beta bound and reparam
         beta = LowerBound.apply(self.beta, self.beta_bound)
-        beta = beta**2 - self.pedestal 
+        beta = beta**2 - self.pedestal
 
         # Gamma bound and reparam
         gamma = LowerBound.apply(self.gamma, self.gamma_bound)
         gamma = gamma**2 - self.pedestal
-        gamma  = gamma.view(ch, ch, 1, 1)
+        gamma = gamma.view(channels, channels, 1, 1)
 
         # Norm pool calc
         norm_ = nn.functional.conv2d(inputs**2, gamma, beta)
         norm_ = torch.sqrt(norm_)
-  
+
         # Apply norm
         if self.inverse:
             outputs = inputs * norm_
@@ -87,5 +89,5 @@ class GDN(nn.Module):
             outputs = inputs / norm_
 
         if unfold:
-            outputs = outputs.view(bs, ch, d, w, h)
+            outputs = outputs.view(bs, channels, d, w, h)
         return outputs

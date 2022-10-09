@@ -1,68 +1,65 @@
-import tensorflow as tf
+import torch
+import torch.nn as nn
 
 
-class PositionalEmbedding(tf.keras.layers.Layer):
+class PositionalEmbedding(nn.Module):
     """**PositionalEmbedding layer**"""
 
-    def __init__(self, sequence_length, vocab_size, embed_dim, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
+    def __init__(self, sequence_length, vocab_size, embed_dim, **kwargs):
+        super().__init__(**kwargs)
         self.sequence_length = sequence_length
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
 
-        self.token_embeddings = tf.keras.layers.Embedding(
-            input_dim=vocab_size, output_dim=embed_dim
+        self.token_embeddings = nn.Embedding(
+            num_embeddings=vocab_size, embedding_dim=embed_dim
         )
-        self.position_embeddings = tf.keras.layers.Embedding(
-            input_dim=sequence_length, output_dim=embed_dim
+        self.position_embeddings = nn.Embedding(
+            num_embeddings=sequence_length, embedding_dim=embed_dim
         )
 
-    def call(self, inputs):
+    def forward(self, inputs):
         embedded_tokens = self.token_embeddings(inputs)
-        length = tf.shape(inputs)[1]
-        positions = tf.range(start=0, limit=length, delta=1)
+        positions = torch.arange(start=0, end=inputs.shape[1], step=1)
         embedded_positions = self.position_embeddings(positions)
         return embedded_tokens + embedded_positions
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "sequence_length": self.sequence_length,
-                "vocab_size": self.vocab_size,
-                "embed_dim": self.embed_dim,
-            }
-        )
-        return config
 
-
-class PatchEmbedding(tf.keras.layers.Layer):
+class PatchEmbedding(nn.Module):
     """Positional Embedding for images"""
 
-    def __init__(self, num_patches, projection_dim, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
+    def __init__(self, c_in, num_patches, projection_dim, **kwargs):
+        super().__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim
-        self.projection = tf.keras.layers.Dense(units=projection_dim)
-        self.position_embedding = tf.keras.layers.Embedding(
-            input_dim=num_patches, output_dim=projection_dim
+        self.position_embedding = nn.Embedding(
+            num_embeddings=num_patches, embedding_dim=projection_dim
         )
+        self.projection = nn.Linear(c_in, projection_dim)
 
-    def call(self, patch):
-        positions = tf.range(start=0, limit=self.num_patches, delta=1)
+    def forward(self, patch):
+        positions = torch.arange(start=0, end=self.num_patches, step=1)
         # (num_patches, projection_dim)
         embedded_positions = self.position_embedding(positions)
-
+        embeded_patch = self.projection(patch)
         # (batch_size, num_patches, projection_dim)
-        embedded_projection = self.projection(patch)
+        embedded_projection = embeded_patch
         return embedded_projection + embedded_positions
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "num_patches": self.num_patches,
-                "projection_dim": self.projection_dim,
-            }
-        )
-        return config
+
+if __name__ == "__main__":
+    print("Testing PatchEmbedding")
+    a = torch.randn(1, 6, 4)
+    patch_embedding = PatchEmbedding(
+        c_in=a.shape[-1], num_patches=a.shape[-2], projection_dim=12
+    )
+    results = patch_embedding(a)
+    print(results.shape)
+
+    print("Testing PositionalEmbedding")
+    a = torch.randint(low=0, high=100, size=(1, 6))
+    pos_embedding = PositionalEmbedding(
+        sequence_length=a.shape[-1], vocab_size=100, embed_dim=8
+    )
+    results = pos_embedding(a)
+    print(results.shape)
