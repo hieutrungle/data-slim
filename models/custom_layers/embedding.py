@@ -5,11 +5,12 @@ import torch.nn as nn
 class PositionalEmbedding(nn.Module):
     """**PositionalEmbedding layer**"""
 
-    def __init__(self, sequence_length, vocab_size, embed_dim, **kwargs):
+    def __init__(self, sequence_length, vocab_size, embed_dim, name=None, **kwargs):
         super().__init__(**kwargs)
         self.sequence_length = sequence_length
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
+        self.name = name
 
         self.token_embeddings = nn.Embedding(
             num_embeddings=vocab_size, embedding_dim=embed_dim
@@ -28,10 +29,11 @@ class PositionalEmbedding(nn.Module):
 class PatchEmbedding(nn.Module):
     """Positional Embedding for images"""
 
-    def __init__(self, c_in, num_patches, projection_dim, **kwargs):
+    def __init__(self, c_in, num_patches, projection_dim, name=None, **kwargs):
         super().__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim
+        self.name = name
         self.position_embedding = nn.Embedding(
             num_embeddings=num_patches, embedding_dim=projection_dim
         )
