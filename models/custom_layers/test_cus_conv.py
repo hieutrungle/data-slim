@@ -2,9 +2,9 @@ import unittest
 import torch
 
 try:
-    import cus_conv
+    import models.custom_layers.cus_layers as cus_layers
 except ImportError:
-    from . import cus_conv
+    from . import cus_layers
 
 
 class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
@@ -13,7 +13,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 1
         kernel_size = 3
-        downsampling_block = cus_conv.Conv2dSame(
+        downsampling_block = cus_layers.Conv2dSame(
             x.shape[1],
             5,
             kernel_size=kernel_size,
@@ -21,7 +21,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv2dTransposeSame(
+        upsampling_block = cus_layers.Conv2dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=kernel_size,
@@ -43,7 +43,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 2
         kernel_size = 3
-        downsampling_block = cus_conv.Conv2dSame(
+        downsampling_block = cus_layers.Conv2dSame(
             x.shape[1],
             5,
             kernel_size=kernel_size,
@@ -51,7 +51,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv2dTransposeSame(
+        upsampling_block = cus_layers.Conv2dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=kernel_size,
@@ -73,7 +73,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 1
         kernel_size = 3
-        downsampling_block = cus_conv.Conv3dSame(
+        downsampling_block = cus_layers.Conv3dSame(
             x.shape[1],
             5,
             kernel_size=kernel_size,
@@ -81,7 +81,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv3dTransposeSame(
+        upsampling_block = cus_layers.Conv3dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=kernel_size,
@@ -103,7 +103,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 2
         kernel_size = 3
-        downsampling_block = cus_conv.Conv3dSame(
+        downsampling_block = cus_layers.Conv3dSame(
             x.shape[1],
             5,
             kernel_size=kernel_size,
@@ -111,7 +111,7 @@ class test_custom_conv_same_odd_kernel_size(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv3dTransposeSame(
+        upsampling_block = cus_layers.Conv3dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=kernel_size,
@@ -136,7 +136,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         input_size = (2, 3, 6, 6)
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 1
-        downsampling_block = cus_conv.Conv2dSame(
+        downsampling_block = cus_layers.Conv2dSame(
             x.shape[1],
             5,
             kernel_size=self.kernel_size,
@@ -144,7 +144,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv2dTransposeSame(
+        upsampling_block = cus_layers.Conv2dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=self.kernel_size,
@@ -165,7 +165,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         input_size = (2, 3, 6, 6)
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 2
-        downsampling_block = cus_conv.Conv2dSame(
+        downsampling_block = cus_layers.Conv2dSame(
             x.shape[1],
             5,
             kernel_size=self.kernel_size,
@@ -173,7 +173,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv2dTransposeSame(
+        upsampling_block = cus_layers.Conv2dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=self.kernel_size,
@@ -194,7 +194,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         input_size = (2, 3, 6, 6, 6)
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 1
-        downsampling_block = cus_conv.Conv3dSame(
+        downsampling_block = cus_layers.Conv3dSame(
             x.shape[1],
             5,
             kernel_size=self.kernel_size,
@@ -202,7 +202,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv3dTransposeSame(
+        upsampling_block = cus_layers.Conv3dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=self.kernel_size,
@@ -223,7 +223,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         input_size = (2, 3, 6, 6, 6)
         x = torch.randn(input_size)  # (B, C, H, W)
         stride = 2
-        downsampling_block = cus_conv.Conv3dSame(
+        downsampling_block = cus_layers.Conv3dSame(
             x.shape[1],
             5,
             kernel_size=self.kernel_size,
@@ -231,7 +231,7 @@ class test_custom_conv_same_random(unittest.TestCase):
         )
         y = downsampling_block(x)
 
-        upsampling_block = cus_conv.Conv3dTransposeSame(
+        upsampling_block = cus_layers.Conv3dTransposeSame(
             y.shape[1],
             input_size[1],
             kernel_size=self.kernel_size,

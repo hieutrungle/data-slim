@@ -1,417 +1,374 @@
+import collections
+from itertools import repeat
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 
-try:
-    import gdn
-    import cus_conv
-except:
-    from . import gdn, cus_conv
-import numpy as np
+"""Warning: All Conv Transpose layers only work for odd kernel size"""
+# Based on many comments in https://github.com/pytorch/pytorch/issues/3867
 
 
-class DownSamplingBlock(nn.Module):
-    """Downsampling block"""
+def _ntuple(n):
+    """Copied from PyTorch since it's not importable as an internal function
+    https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/utils.py#L6
+    """
 
-    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.name = name
+    def parse(x):
+        if isinstance(x, collections.abc.Iterable):
+            return tuple(x)
+        return tuple(repeat(x, n))
 
-        self.gdn = gdn.GDN(c_in)
-        self.conv0 = cus_conv.Conv2dSame(
-            c_in, c_out, kernel_size=kernel_size, stride=stride
-        )
-
-    def forward(self, x):
-        x = self.gdn(x)
-        x = self.conv0(x)
-        return x
+    return parse
 
 
-class UpSamplingBlock(nn.Module):
-    """Upsampling block"""
+_single = _ntuple(1)
+_pair = _ntuple(2)
+_triplet = _ntuple(3)
+
+
+class Conv1dSame(nn.Module):
+    """Manual 1d convolution with same padding"""
 
     def __init__(
-        self, c_in, c_out, kernel_size, stride, padding=0, name=None, **kwargs
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        bias=True,
+        **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.name = name
-
-        self.igdn = gdn.GDN(c_in, inverse=True)
-        self.conv1 = cus_conv.Conv2dTransposeSame(
-            c_in,
-            c_out,
+        """Wrap base convolution layer
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+        """
+        super().__init__()
+        self.conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride,
-            # padding=padding,
-            # # output_padding=stride - 1,
+            dilation=dilation,
+            bias=bias,
+            **kwargs,
         )
+
+        # Setup internal representations
+        kernel_size_ = _single(kernel_size)
+        dilation_ = _single(dilation)
+        self._reversed_padding_repeated_twice = [0, 0] * len(kernel_size_)
+        # Follow the logic from ``nn._ConvNd``
+        # https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/conv.py#L116
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = d * (k - 1)
+            left_pad = total_padding // 2
+            self._reversed_padding_repeated_twice[2 * i] = left_pad
+            self._reversed_padding_repeated_twice[2 * i + 1] = total_padding - left_pad
+
+    @property
+    def reversed_padding_repeated_twice(self):
+        return self._reversed_padding_repeated_twice
+
+    @reversed_padding_repeated_twice.setter
+    def reversed_padding_repeated_twice(self, value):
+        self._reversed_padding_repeated_twice = value
 
     def forward(self, x):
-        x = self.igdn(x)
-        x = self.conv1(x)
-        return x
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are (N, C, ...) convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        padded = F.pad(x, self._reversed_padding_repeated_twice)
+        return self.conv(padded)
 
 
-class DownSamplingResBlock2D(nn.Module):
-    """Downsampling res block"""
-
-    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.name = name
-        self.kernel_size = kernel_size
-        self.stride = stride
-        c_hidden = c_out * 4
-        self.gdn = gdn.GDN(c_in)
-
-        self.shortcut = cus_conv.Conv2dSame(c_in, c_out, kernel_size=1, stride=stride)
-        self.act = nn.GELU()
-        self.conv0 = cus_conv.Conv2dSame(
-            c_in, c_out, kernel_size=kernel_size, stride=stride
-        )
-        self.conv1 = cus_conv.Conv2dSame(c_out, c_hidden, kernel_size=1, stride=1)
-        self.conv2 = cus_conv.Conv2dSame(c_hidden, c_out, kernel_size=1, stride=1)
-        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
-
-    def forward(self, x):
-        x = self.gdn(x)
-        x_shortcut = self.shortcut(x)
-        for cell in self.cells:
-            x = cell(x)
-        return x + x_shortcut
-
-
-class UpSamplingResBlock2D(nn.Module):
-    """Upsampling res block"""
-
-    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.name = name
-        self.kernel_size = kernel_size
-        self.stride = stride
-        c_hidden = c_out * 4
-
-        self.igdn = gdn.GDN(c_in, inverse=True)
-        self.shortcut = cus_conv.Conv2dTransposeSame(
-            c_in, c_out, kernel_size=1, stride=stride
-        )
-        self.act = nn.GELU()
-        self.conv0 = cus_conv.Conv2dTransposeSame(
-            c_in, c_out, kernel_size=kernel_size, stride=stride
-        )
-        self.conv1 = cus_conv.Conv2dTransposeSame(
-            c_out, c_hidden, kernel_size=1, stride=1
-        )
-        self.conv2 = cus_conv.Conv2dTransposeSame(
-            c_hidden, c_out, kernel_size=1, stride=1
-        )
-        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
-
-    def forward(self, x):
-        x = self.igdn(x)
-        x_shortcut = self.shortcut(x)
-        for cell in self.cells:
-            x = cell(x)
-        return x + x_shortcut
-
-
-class DownSamplingResBlock3D(nn.Module):
-    """Downsampling res block"""
-
-    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.name = name
-        self.kernel_size = kernel_size
-        self.stride = stride
-        c_hidden = c_out * 4
-
-        self.gdn = gdn.GDN(c_in)
-        self.shortcut = cus_conv.Conv3dSame(c_in, c_out, kernel_size=1, stride=stride)
-        self.act = nn.GELU()
-        self.conv1 = cus_conv.Conv3dSame(
-            c_in, c_out, kernel_size=kernel_size, stride=stride
-        )
-        self.conv2 = cus_conv.Conv3dSame(c_out, c_hidden, kernel_size=1, stride=1)
-        self.conv3 = cus_conv.Conv3dSame(c_hidden, c_out, kernel_size=1, stride=1)
-        self.cells = [self.conv1, self.conv2, self.act, self.conv3]
-
-    def forward(self, x):
-        x = self.gdn(x)
-        x_shortcut = self.shortcut(x)
-        for cell in self.cells:
-            x = cell(x)
-        x = x + x_shortcut
-        return x
-
-
-class UpSamplingResBlock3D(nn.Module):
-    """Upsampling res block"""
-
-    def __init__(self, c_in, c_out, kernel_size, stride, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.name = name
-        self.kernel_size = kernel_size
-        self.stride = stride
-        c_hidden = c_out * 4
-
-        self.igdn = gdn.GDN(c_in, inverse=True)
-        self.shortcut = cus_conv.Conv3dTransposeSame(
-            c_in, c_out, kernel_size=1, stride=stride
-        )
-        self.act = nn.GELU()
-        self.conv0 = cus_conv.Conv3dTransposeSame(
-            c_in, c_out, kernel_size=kernel_size, stride=stride
-        )
-        self.conv1 = cus_conv.Conv3dTransposeSame(
-            c_out, c_hidden, kernel_size=1, stride=1
-        )
-        self.conv2 = cus_conv.Conv3dTransposeSame(
-            c_hidden, c_out, kernel_size=1, stride=1
-        )
-        self.cells = [self.conv0, self.conv1, self.act, self.conv2]
-
-    def forward(self, x):
-        x = self.igdn(x)
-        x_shortcut = self.shortcut(x)
-        for cell in self.cells:
-            x = cell(x)
-        x = x + x_shortcut
-        return x
-
-
-class ForwardConv1d(nn.Module):
-    """Forward Conv1d"""
+class Conv1dTransposeSame(nn.Module):
+    """Manual 1d transpose convolution with same padding"""
 
     def __init__(
-        self, c_in, c_out, c_hidden, kernel_size=1, stride=1, name=None, **kwargs
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        return_odd=False,
+        bias=True,
+        **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.name = name
-        self.gdn = gdn.GDN(c_in)
-        self.flatten = nn.Flatten()
-        self.conv1d = cus_conv.Conv1dSame(
-            c_hidden, c_out, kernel_size=kernel_size, stride=stride
+        """Wrap base convolution layer
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+        """
+        super().__init__()
+        output_padding = 1 if not return_odd else 0
+        output_padding = 0 if stride <= 1 else output_padding
+
+        # Setup internal representations
+        kernel_size_ = _single(kernel_size)
+        dilation_ = _single(dilation)
+        self._padding = [0] * len(kernel_size_)
+        # Follow the logic from ``nn._ConvNd``
+        # https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/conv.py#L116
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = (d * (k - 1)) // 2
+            self._padding[i] = total_padding
+        self.conv_transpose = nn.ConvTranspose1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            padding=self._padding,
+            output_padding=output_padding,
+            bias=bias,
+            **kwargs,
         )
 
     def forward(self, x):
-        # (B, C, ...)
-        x = self.gdn(x)
-        # (B, C)
-        x = self.flatten(x)
-        # (B, C, 1)
-        x = torch.unsqueeze(x, axis=-1)
-        x = self.conv1d(x)
-        return x
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are ``(N, C, ...)`` convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        return self.conv_transpose(x)
 
 
-class ForwardMLP(nn.Module):
-    """Forward MLP"""
+class Conv2dSame(nn.Module):
+    """Manual 2d convolution with same padding"""
 
-    def __init__(self, c_in, c_out, c_hidden, name=None, **kwargs):
-        super().__init__(**kwargs)
-        self.name = name
-        self.gdn = gdn.GDN(c_in)
-        self.flatten = nn.Flatten()
-        self.linear = nn.Linear(c_hidden, c_out)
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        bias=True,
+        **kwargs,
+    ):
+        """Wrap base convolution layer
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+        """
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            bias=bias,
+            **kwargs,
+        )
+
+        # Setup internal representations
+        kernel_size_ = _pair(kernel_size)
+        dilation_ = _pair(dilation)
+        self._reversed_padding_repeated_twice = [0, 0] * len(kernel_size_)
+
+        # Follow the logic from ``nn._ConvNd``
+        # https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/conv.py#L116
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = d * (k - 1)
+            left_pad = total_padding // 2
+            self._reversed_padding_repeated_twice[2 * i] = left_pad
+            self._reversed_padding_repeated_twice[2 * i + 1] = total_padding - left_pad
+
+    @property
+    def reversed_padding_repeated_twice(self):
+        return self._reversed_padding_repeated_twice
+
+    @reversed_padding_repeated_twice.setter
+    def reversed_padding_repeated_twice(self, value):
+        self._reversed_padding_repeated_twice = value
 
     def forward(self, x):
-        # (B, C, ...)
-        x = self.gdn(x)
-        # (B, C)
-        x = self.flatten(x)
-        x = self.linear(x)
-        return x
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are (N, C, ...) convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        padded = F.pad(x, self._reversed_padding_repeated_twice)
+        return self.conv(padded)
 
 
-def _test_res_down_2d():
-    print(f"\nTest DownSamplingResBlock2D")
-    input_size = (2, 3, 6, 6)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    downsampling_res_block = DownSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
-    )
-    results = downsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+class Conv2dTransposeSame(nn.Module):
+    """Manual 2d transpose convolution with same padding"""
 
-    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
-    stride = 2
-    downsampling_res_block = DownSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
-    )
-    results = downsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        return_odd=False,
+        bias=True,
+        **kwargs,
+    ):
+        """Wrap base convolution layer
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+        """
+        super().__init__()
+        output_padding = 1 if not return_odd else 0
+        output_padding = 0 if stride <= 1 else output_padding
 
-    input_size = (2, 3, 7, 7)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    downsampling_res_block = DownSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
-    )
-    results = downsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
-    stride = 2
-    downsampling_res_block = DownSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="downsampling_res_block"
-    )
-    results = downsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-
-def _test_res_up_2d():
-    print(f"\nTest UpSamplingResBlock2D")
-    input_size = (2, 3, 6, 6)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    upsampling_res_block = UpSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
-    )
-    results = upsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
-    stride = 2
-    upsampling_res_block = UpSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
-    )
-    results = upsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    input_size = (2, 3, 7, 7)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    upsampling_res_block = UpSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
-    )
-    results = upsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
-    stride = 2
-    upsampling_res_block = UpSamplingResBlock2D(
-        a.shape[1], 5, kernel_size=3, stride=stride, name="upsampling_res_block"
-    )
-    results = upsampling_res_block(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-
-def _test_res_2d():
-    print(f"\nTest UpSamplingResBlock2D and DownSamplingResBlock2D")
-    x = torch.randn(1, 3, 64, 64)  # (B, C, H, W)
-    stride = 2
-    y = x
-    for i in range(3):
-        downsampling_res_block = DownSamplingResBlock2D(
-            y.shape[1], 5, kernel_size=5, stride=stride, name="downsampling_res_block"
+        # Setup internal representations
+        kernel_size_ = _pair(kernel_size)
+        dilation_ = _pair(dilation)
+        self._padding = [0] * len(kernel_size_)
+        # Follow the logic from ``nn._ConvNd``
+        # https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/conv.py#L116
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = (d * (k - 1)) // 2
+            self._padding[i] = total_padding
+        self.conv_transpose = nn.ConvTranspose2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            padding=self._padding,
+            output_padding=output_padding,
+            bias=bias,
+            **kwargs,
         )
-        y = downsampling_res_block(y)
-        print(f"y.shape: {y.shape}")
 
-    x_hat = y
-    for i in range(3):
-        upsampling_res_block = UpSamplingResBlock2D(
-            x_hat.shape[1], 3, kernel_size=5, stride=stride, name="upsampling_res_block"
+    def forward(self, x):
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are ``(N, C, ...)`` convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        return self.conv_transpose(x)
+
+
+class Conv3dSame(nn.Module):
+    """Manual 3d convolution with same padding"""
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        bias=True,
+        **kwargs,
+    ):
+        """Wrap base convolution layer
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv3d.html
+        """
+        super().__init__()
+        self.conv = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            bias=bias,
+            **kwargs,
         )
-        x_hat = upsampling_res_block(x_hat)
-        print(f"x_hat.shape: {x_hat.shape}")
 
-    print(f"input shape: {x.shape}; stride: {stride}; results.shape: {x_hat.shape}")
+        # Setup internal representations
+        kernel_size_ = _triplet(kernel_size)
+        dilation_ = _triplet(dilation)
+        self._reversed_padding_repeated_twice = [0, 0] * len(kernel_size_)
+
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = d * (k - 1)
+            left_pad = total_padding // 2
+            self._reversed_padding_repeated_twice[2 * i] = left_pad
+            self._reversed_padding_repeated_twice[2 * i + 1] = total_padding - left_pad
+
+    @property
+    def reversed_padding_repeated_twice(self):
+        return self._reversed_padding_repeated_twice
+
+    @reversed_padding_repeated_twice.setter
+    def reversed_padding_repeated_twice(self, value):
+        self._reversed_padding_repeated_twice = value
+
+    def forward(self, x):
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are ``(N, C, ...)`` convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        padded = F.pad(x, self._reversed_padding_repeated_twice)
+        return self.conv(padded)
 
 
-def _test_res_3d():
-    print(f"\nTest UpSamplingResBlock3D and DownSamplingResBlock3D")
-    x = torch.randn(1, 3, 64, 64, 64)  # (B, C, H, W)
-    stride = 2
-    y = x
-    for i in range(3):
-        downsampling_res_block = DownSamplingResBlock3D(
-            y.shape[1], 5, kernel_size=5, stride=stride, name="downsampling_res_block"
+class Conv3dTransposeSame(nn.Module):
+    """Manual 3d tranpose convolution with same padding"""
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        return_odd=False,
+        bias=True,
+        **kwargs,
+    ):
+        """Wrap base convolution layer
+
+        See official PyTorch documentation for parameter details
+        https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+        """
+        super().__init__()
+        output_padding = 1 if not return_odd else 0
+        output_padding = 0 if stride <= 1 else output_padding
+
+        # Setup internal representations
+        kernel_size_ = _triplet(kernel_size)
+        dilation_ = _triplet(dilation)
+        self._padding = [0] * len(kernel_size_)
+        # Follow the logic from ``nn._ConvNd``
+        # https://github.com/pytorch/pytorch/blob/v1.10.0/torch/nn/modules/conv.py#L116
+        for d, k, i in zip(
+            dilation_, kernel_size_, range(len(kernel_size_) - 1, -1, -1)
+        ):
+            total_padding = (d * (k - 1)) // 2
+            self._padding[i] = total_padding
+
+        self.conv_transpose = nn.ConvTranspose3d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            padding=self._padding,
+            output_padding=output_padding,
+            bias=bias,
+            **kwargs,
         )
-        y = downsampling_res_block(y)
-        print(f"y.shape: {y.shape}")
 
-    x_hat = y
-    for i in range(3):
-        upsampling_res_block = UpSamplingResBlock3D(
-            x_hat.shape[1], 3, kernel_size=5, stride=stride, name="upsampling_res_block"
-        )
-        x_hat = upsampling_res_block(x_hat)
-        print(f"x_hat.shape: {x_hat.shape}")
-
-    print(f"input shape: {x.shape}; stride: {stride}; results.shape: {x_hat.shape}")
-
-
-def _test_forward_conv():
-    print(f"\nTest Forward1D")
-    input_size = (2, 3, 6, 6)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    forward_1d = ForwardConv1d(
-        a.shape[1],
-        np.prod(input_size[1:]),
-        c_hidden=np.prod(input_size[1:]),
-        kernel_size=3,
-        stride=stride,
-        name="forward_1d",
-    )
-    results = forward_1d(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    a = torch.randn(2, 3, 6, 6)  # (B, C, H, W)
-    stride = 2
-    forward_1d = ForwardConv1d(
-        a.shape[1],
-        np.prod(input_size[1:]),
-        c_hidden=np.prod(input_size[1:]),
-        kernel_size=3,
-        stride=stride,
-        name="forward_1d",
-    )
-    results = forward_1d(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    input_size = (2, 3, 7, 7)
-    a = torch.randn(input_size)  # (B, C, H, W)
-    stride = 1
-    forward_1d = ForwardConv1d(
-        a.shape[1],
-        np.prod(input_size[1:]),
-        c_hidden=np.prod(input_size[1:]),
-        kernel_size=3,
-        stride=stride,
-        name="forward_1d",
-    )
-    results = forward_1d(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-    a = torch.randn(2, 3, 7, 7)  # (B, C, H, W)
-    stride = 2
-    forward_1d = ForwardConv1d(
-        a.shape[1],
-        np.prod(input_size[1:]),
-        c_hidden=np.prod(input_size[1:]),
-        kernel_size=3,
-        stride=stride,
-        name="forward_1d",
-    )
-    results = forward_1d(a)
-    print(f"input shape: {a.shape}; stride: {stride}; results.shape: {results.shape}")
-
-
-def main():
-
-    _test_res_down_2d()
-    _test_res_up_2d()
-    _test_res_2d()
-    _test_res_3d()
-    _test_forward_conv()
+    def forward(self, x):
+        """Setup padding so same spatial dimensions are returned
+        All shapes (input/output) are ``(N, C, ...)`` convention
+        :param torch.Tensor data:
+        :return torch.Tensor:
+        """
+        return self.conv_transpose(x)
 
 
 if __name__ == "__main__":
-    main()
+    pass

@@ -6,14 +6,18 @@ import torch
 import torch.nn as nn
 import numpy as np
 import abc
+from torchinfo import summary
 
-# from .custom_layers import cus_layers
+try:
+    from custom_layers import cus_blocks, cus_layers
+except:
+    from .custom_layers import cus_blocks, cus_layers
 
 
 class BaseModel(nn.Module):
     """Base class for all models."""
 
-    def __init__(self, name):
+    def __init__(self, name=None):
         super().__init__()
         self.name = name
 
@@ -39,164 +43,162 @@ class BaseModel(nn.Module):
         )
 
 
-class SimpleClassifier(BaseModel):
-    def __init__(self, num_inputs, num_hidden, num_outputs, name="SimpleClassifier"):
-        super().__init__(name=name)
-        # Initialize the modules we need to build the network
-        self.linear1 = nn.Linear(num_inputs, num_hidden)
-        self.act_fn = nn.Tanh()
-        self.bn = nn.BatchNorm1d(num_hidden)
-        self.linear2 = nn.Linear(num_hidden, num_outputs)
+class EncodingStack(nn.Module):
+    def __init__(self, c_in, c_out, num_residual_layers, kernel_size=3, stride=2):
+        super().__init__()
+        self._num_residual_layers = num_residual_layers
+        self._layers = nn.ModuleList(
+            [cus_blocks.DownSamplingResBlock2D(c_in, c_out, kernel_size, stride)]
+        )
+        for _ in range(self._num_residual_layers - 1):
+            self._layers.append(
+                cus_blocks.DownSamplingResBlock2D(c_out, c_out, kernel_size, stride)
+            )
 
     def forward(self, x):
-        # Perform the calculation of the model to determine the prediction
-        x = self.linear1(x)
-        x = self.act_fn(x)
-        x = self.bn(x)
-        x = self.linear2(x)
+        for i in range(self._num_residual_layers):
+            x = self._layers[i](x)
+        return x
+
+
+class DecodingStack(nn.Module):
+    def __init__(self, c_in, c_out, num_residual_layers, kernel_size=3, stride=2):
+        super().__init__()
+        self._num_residual_layers = num_residual_layers
+
+        self._layers = nn.ModuleList()
+        for _ in range(self._num_residual_layers - 1):
+            self._layers.append(
+                cus_blocks.UpSamplingResBlock2D(c_in, c_in, kernel_size, stride)
+            )
+        self._layers.append(
+            cus_blocks.UpSamplingResBlock2D(c_in, c_out, kernel_size, stride)
+        )
+
+    def forward(self, x):
+        for i in range(self._num_residual_layers):
+            x = self._layers[i](x)
+        return x
+
+
+class Encoder(BaseModel):
+    def __init__(
+        self,
+        c_data,
+        pre_num_channels,
+        num_channels,
+        latent_dim,
+        num_residual_layers,
+        name=None,
+        **kwargs,
+    ):
+        super().__init__(name=name, **kwargs)
+
+        self._conv0 = cus_layers.Conv2dSame(c_data, pre_num_channels, kernel_size=1)
+        self.act = nn.GELU()
+        self._conv1 = cus_layers.Conv2dSame(
+            pre_num_channels,
+            pre_num_channels * 2,
+            kernel_size=4,
+            stride=1,
+        )
+        self._conv2 = cus_layers.Conv2dSame(
+            pre_num_channels * 2,
+            pre_num_channels * 2,
+            kernel_size=3,
+            stride=1,
+        )
+        self._encoding_stack = EncodingStack(
+            pre_num_channels * 2,
+            num_channels,
+            num_residual_layers=num_residual_layers,
+            kernel_size=3,
+            stride=2,
+        )
+        self._conv3 = cus_layers.Conv2dSame(
+            num_channels,
+            latent_dim,
+            kernel_size=3,
+            stride=1,
+        )
+
+    def forward(self, x):
+        x = self._conv0(x)
+        x = self.act(x)
+        x = self._conv1(x)
+        x = self.act(x)
+        x = self._conv2(x)
+        x = self._encoding_stack(x)
+        x = self._conv3(x)
+        return x
+
+
+class Decoder(BaseModel):
+    def __init__(
+        self,
+        c_data,
+        post_num_channels,
+        num_channels,
+        latent_dim,
+        num_residual_layers,
+        name=None,
+        **kwargs,
+    ):
+        super().__init__(name=name, **kwargs)
+
+        self.act = nn.GELU()
+        self._conv0 = cus_layers.Conv2dTransposeSame(
+            latent_dim,
+            num_channels,
+            kernel_size=3,
+            stride=1,
+        )
+        self._decoding_stack = DecodingStack(
+            num_channels,
+            post_num_channels * 2,
+            num_residual_layers,
+            kernel_size=3,
+            stride=2,
+        )
+        self._conv1 = cus_layers.Conv2dTransposeSame(
+            post_num_channels * 2,
+            post_num_channels,
+            kernel_size=3,
+            stride=1,
+        )
+        self._conv2 = cus_layers.Conv2dTransposeSame(
+            post_num_channels,
+            c_data,
+            kernel_size=1,
+            stride=1,
+        )
+
+    def forward(self, x):
+        x = self._conv0(x)
+        x = self._decoding_stack(x)
+        x = self.act(x)
+        x = self._conv1(x)
+        x = self.act(x)
+        x = self._conv2(x)
         return x
 
 
 if __name__ == "__main__":
-    model = SimpleClassifier(num_inputs=2, num_hidden=4, num_outputs=1)
-    # Printing a module shows all its submodules
-    print(model)
-    model.summarize_model()
+    in_channels = 1
+    pre_num_channels = post_num_channels = 32
+    num_channels = 96
+    num_residual_layers = 3
+    latent_dim = 128
+    input_size = (1, 1, 128, 128)
+    x = torch.normal(0, 1, input_size)
+    model = Encoder(
+        in_channels, pre_num_channels, num_channels, latent_dim, num_residual_layers
+    )
+    summary(model, x.shape, col_width=30, depth=3, verbose=1)
+    y = model(x)
 
-# class BaseModel(tf.keras.Model):
-#     @abc.abstractmethod
-#     def __init__(self, in_shape, name=None, **kwargs):
-#         super().__init__(name=name, **kwargs)
-#         self.in_shape = in_shape
-
-#     @abc.abstractmethod
-#     def model(self):
-#         x = tf.keras.Input(shape=self.in_shape)
-#         return tf.keras.Model(inputs=x, outputs=self.__call__(x), name=self.name)
-
-#     @abc.abstractmethod
-#     def summarize_model(self):
-
-
-#         trainableParams = int(
-#             np.sum([np.prod(v.get_shape()) for v in self.trainable_weights])
-#         )
-#         nonTrainableParams = int(
-#             np.sum([np.prod(v.get_shape()) for v in self.non_trainable_weights])
-#         )
-#         totalParams = trainableParams + nonTrainableParams
-#         print(
-#             f"\n================================================================="
-#             f"\n                     {self.name} Summary"
-#             f"\nTotal params: {totalParams:,}"
-#             f"\nTrainable params: {trainableParams:,}"
-#             f"\nNon-trainable params: {nonTrainableParams:,}"
-#             f"\n_________________________________________________________________\n"
-#         )
-
-#     @abc.abstractmethod
-#     def get_config(self):
-#         config = super().get_config()
-#         config.update(
-#             {
-#                 "in_shape": self.in_shape,
-#             }
-#         )
-#         return config
-
-
-# class Encoder(BaseModel):
-#     """Encoder"""
-
-#     def __init__(
-#         self, in_shape, latent_dim, num_channels, num_conv_layers, name=None, **kwargs
-#     ):
-#         super().__init__(in_shape=in_shape, name=name, **kwargs)
-#         self.in_shape = in_shape
-#         self.latent_dim = latent_dim
-#         self.num_channels = num_channels
-#         self.num_conv_layers = num_conv_layers
-#         self.cells = []
-#         intial_dim = num_channels // (2**2)
-
-#         first_cell = tf.keras.layers.Conv2D(
-#             intial_dim, kernel_size=1, strides=1, padding="same", name="enc_block0"
-#         )
-
-#         cells = []
-#         for i in range(num_conv_layers):
-#             cell = cus_layers.DownSamplingResBlock2D(
-#                 num_channels=num_channels,
-#                 kernel_size=3,
-#                 strides=2,
-#                 name=f"enc_block{i+1}",
-#             )
-#             cells.append(cell)
-
-#         last_cell = tf.keras.layers.Conv2D(
-#             latent_dim, kernel_size=1, strides=1, padding="same", name="enc_block_final"
-#         )
-
-#         self.cells = [first_cell, *cells, last_cell]
-
-#     def __call__(self, x):
-#         for cell in self.cells:
-#             x = cell(x)
-#         return x
-
-#     def get_config(self):
-#         config = super().get_config()
-#         config.update(
-#             {
-#                 "latent_dim": self.latent_dim,
-#                 "num_channels": self.num_channels,
-#                 "num_conv_layers": self.num_conv_layers,
-#             }
-#         )
-#         return config
-
-
-# class Decoder(BaseModel):
-#     """Decoder"""
-
-#     def __init__(self, in_shape, num_channels, num_conv_layers, name=None, **kwargs):
-#         super().__init__(in_shape=in_shape, name=name, **kwargs)
-#         self.in_shape = in_shape
-#         self.num_channels = num_channels
-#         self.num_conv_layers = num_conv_layers
-#         latent_dim = in_shape[-1]
-
-#         first_cell = tf.keras.layers.Conv2DTranspose(
-#             latent_dim, kernel_size=1, strides=1, padding="same", name="dec_block0"
-#         )
-
-#         cells = []
-#         for i in range(num_conv_layers):
-#             cell = cus_layers.UpSamplingResBlock2D(
-#                 num_channels=num_channels,
-#                 kernel_size=4,
-#                 strides=2,
-#                 name=f"dec_block{i+1}",
-#             )
-#             cells.append(cell)
-
-#         last_cell = tf.keras.layers.Conv2DTranspose(
-#             1, kernel_size=1, strides=1, padding="same", name="dec_block_final"
-#         )
-
-#         self.cells = [first_cell, *cells, last_cell]
-
-#     def __call__(self, x):
-#         for cell in self.cells:
-#             x = cell(x)
-#         return x
-
-#     def get_config(self):
-#         config = super().get_config()
-#         config.update(
-#             {
-#                 "num_channels": self.num_channels,
-#                 "num_conv_layers": self.num_conv_layers,
-#             }
-#         )
-#         return config
+    model = Decoder(
+        in_channels, post_num_channels, num_channels, latent_dim, num_residual_layers
+    )
+    print()
+    summary(model, y.shape, col_width=30, depth=3, verbose=1)
