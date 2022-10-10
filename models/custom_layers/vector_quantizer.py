@@ -1,78 +1,175 @@
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
-class VectorQuantizer(tf.keras.layers.Layer):
-    def __init__(self, num_embeddings, embedding_dim, beta=0.25, **kwargs):
-        super().__init__(**kwargs)
-        self.embedding_dim = embedding_dim
-        self.num_embeddings = num_embeddings
-        self.beta = (beta)  # should be in [0.1, 2] as in the paper
+class VectorQuantizer(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost=0.25):
+        """Return a vector quantized data based on distance criteria.
+        Quantization with one hot encoding and a learnable Embedding table
+        """
+        super().__init__()
 
-        # Initialize the embeddings which we will quantize
-        w_init = tf.random_uniform_initializer()
-        # (embedding_dim, num_embeddings)
-        self.embeddings = tf.Variable(
-            initial_value=w_init(
-                shape=(self.embedding_dim, self.num_embeddings), dtype="float32"),
-            trainable=True,
-            name="embeddings_vqvae",
+        self._embedding_dim = embedding_dim
+        self._num_embeddings = num_embeddings
+
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
+        self._embedding.weight.data.uniform_(
+            -1 / self._num_embeddings, 1 / self._num_embeddings
         )
+        self._commitment_cost = commitment_cost
 
-    def call(self, x):
-        # calculate the input shape of te inputs and
-        # then flatten the inputs keeping embedding_dim intact
-        # Note: embedding_dim = latent_dim
-        input_shape = tf.shape(x)
-        flattened = tf.reshape(x, [-1, self.embedding_dim])
+    def forward(self, inputs):
+        # convert inputs from BCHW -> BHWC
+        inputs = inputs.permute(0, 2, 3, 1).contiguous()
+        input_shape_channel_last = inputs.shape
 
-        # Quantization
-        # (BxHxW, )
-        encoding_indices = self.get_code_indices(flattened)
-        # (BxHxW, num_embeddings)
-        encodings = tf.one_hot(encoding_indices, self.num_embeddings)
-        # (BxHxW, num_embeddings) * (embedding_dim, num_embeddings).T = (BxHxW, embedding_dim)
-        quantized = tf.matmul(encodings, self.embeddings, transpose_b=True)
-        # (B, H, W, embedding_dim)
-        quantized = tf.reshape(quantized, input_shape)
+        # Flatten input, (B, H, W, C) -> (B * H * W, C)
+        flat_input = inputs.view(-1, self._embedding_dim)
 
-        # Calculate vector quantization loss and add that to the layer
-        commitment_loss = self.beta * tf.reduce_mean(
-            (tf.stop_gradient(quantized) - x) ** 2
-        )
-        codebook_loss = tf.reduce_mean(
-            (quantized - tf.stop_gradient(x)) ** 2
-        )
-        self.add_loss(commitment_loss + codebook_loss)
-
-        # Straight-through estimator
-        quantized = x + tf.stop_gradient(quantized - x)
-        return quantized
-
-    def get_code_indices(self, flattened_inputs):
-        # Calculate L2-normalized distance between the inputs and the codes
-        # flattened_inputs: (BxHxW, embedding_dim)
-        # (BxHxW, embedding_dim) * (embedding_dim, num_embeddings) = (BxHxW, num_embeddings)
-        similarity = tf.matmul(flattened_inputs, self.embeddings)
-        reduced_flatten = tf.reduce_sum(
-            flattened_inputs ** 2, axis=1, keepdims=True)
-        reduced_embedding = tf.reduce_sum(self.embeddings ** 2, axis=0)
-        # (BxHxW, num_embeddings)
+        # Calculate distances, (B * H * W, num_embeddings)
         distances = (
-            reduced_flatten + reduced_embedding - 2 * similarity
+            torch.sum(flat_input**2, dim=1, keepdim=True)
+            + torch.sum(self._embedding.weight**2, dim=1)
+            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
         )
 
-        # Derive the indices for minimum distance
-        # (BxHxW, 1)
-        encoding_indices = tf.argmin(distances, axis=1)
-        return encoding_indices
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "embedding_dim": self.embedding_dim,
-                "num_embeddings": self.num_embeddings,
-                "beta": self.beta,
-            }
+        # Get the smallest distance for each element in dim=0 along the dim=1
+        # (B * H * W, num_embeddings) -> (B * H * W, 1)
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        # Encoding, one hot encoding based on the encoding_indices
+        # (B * H * W, C) -> (B * H * W, num_embeddings)
+        encodings = torch.zeros(
+            encoding_indices.shape[0], self._num_embeddings, device=inputs.device
         )
-        return config
+        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+
+        # Quantize (B * H * W, num_embeddings) * (num_embeddings, C) -> (B * H * W, C)
+        # Quantization example:
+        # encodings= [[0,1,0], [1,0,0]]; self._embedding.weight = [[1,2,3], [4,5,6], [7,8,9]]
+        # When we do matmul, we get the second row and the first row of self._embedding.weight
+        # Results: [[4,5,6], [1,2,3]]
+        quantized = torch.matmul(encodings, self._embedding.weight)
+        # Unflatten quantized, (B * H * W, C) -> (B, H, W, C)
+        quantized = quantized.view(input_shape_channel_last)
+
+        # Loss
+        e_latent_loss = F.mse_loss(quantized.detach(), inputs)
+        q_latent_loss = F.mse_loss(quantized, inputs.detach())
+        loss = q_latent_loss + self._commitment_cost * e_latent_loss
+
+        quantized = inputs + (quantized - inputs).detach()
+        avg_probs = torch.mean(encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
+        # convert quantized from BHWC -> BCHW
+        return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+
+
+class VectorQuantizerEMA(nn.Module):
+    def __init__(
+        self,
+        num_embeddings,
+        embedding_dim,
+        commitment_cost=0.25,
+        decay=0.99,
+        epsilon=1e-5,
+    ):
+        super().__init__()
+
+        self._embedding_dim = embedding_dim
+        self._num_embeddings = num_embeddings
+
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
+        self._embedding.weight.data.normal_()
+        self._commitment_cost = commitment_cost
+
+        self.register_buffer("_ema_cluster_size", torch.zeros(num_embeddings))
+        self._ema_w = nn.Parameter(torch.Tensor(num_embeddings, self._embedding_dim))
+        self._ema_w.data.normal_()
+
+        self._decay = decay
+        self._epsilon = epsilon
+
+    def forward(self, inputs):
+        # convert inputs from BCHW -> BHWC
+        inputs = inputs.permute(0, 2, 3, 1).contiguous()
+        input_shape_channel_last = inputs.shape
+
+        # Flatten input, (B, H, W, C) -> (B * H * W, C)
+        flat_input = inputs.view(-1, self._embedding_dim)
+
+        # Calculate distances, (B * H * W, num_embeddings)
+        distances = (
+            torch.sum(flat_input**2, dim=1, keepdim=True)
+            + torch.sum(self._embedding.weight**2, dim=1)
+            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
+        )
+
+        # Get the smallest distance for each element in dim=0 along the dim=1
+        # (B * H * W, num_embeddings) -> (B * H * W, 1)
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        # Encoding, one hot encoding based on the encoding_indices
+        # (B * H * W, C) -> (B * H * W, num_embeddings)
+        encodings = torch.zeros(
+            encoding_indices.shape[0], self._num_embeddings, device=inputs.device
+        )
+        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+
+        # Quantize (B * H * W, num_embeddings) * (num_embeddings, C) -> (B * H * W, C)
+        # Quantization example:
+        # encodings= [[0,1,0], [1,0,0]]; self._embedding.weight = [[1,2,3], [4,5,6], [7,8,9]]
+        # When we do matmul, we get the second row and the first row of self._embedding.weight
+        # Results: [[4,5,6], [1,2,3]]
+        quantized = torch.matmul(encodings, self._embedding.weight)
+        # Unflatten quantized, (B * H * W, C) -> (B, H, W, C)
+        quantized = quantized.view(input_shape_channel_last)
+
+        # Use EMA to update the embedding vectors
+        if self.training:
+            self._ema_cluster_size = self._ema_cluster_size * self._decay + (
+                1 - self._decay
+            ) * torch.sum(encodings, 0)
+
+            # Laplace smoothing of the cluster size
+            n = torch.sum(self._ema_cluster_size.data)
+            self._ema_cluster_size = (
+                (self._ema_cluster_size + self._epsilon)
+                / (n + self._num_embeddings * self._epsilon)
+                * n
+            )
+
+            dw = torch.matmul(encodings.t(), flat_input)
+            self._ema_w = nn.Parameter(
+                self._ema_w * self._decay + (1 - self._decay) * dw
+            )
+
+            self._embedding.weight = nn.Parameter(
+                self._ema_w / self._ema_cluster_size.unsqueeze(1)
+            )
+
+        # Loss
+        e_latent_loss = F.mse_loss(quantized.detach(), inputs)
+        loss = self._commitment_cost * e_latent_loss
+
+        # Straight Through Estimator
+        quantized = inputs + (quantized - inputs).detach()
+        avg_probs = torch.mean(encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
+        # convert quantized from BHWC -> BCHW
+        return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+
+
+if __name__ == "__main__":
+    num_embeddings = 8
+    embedding_dim = 4
+    x = torch.normal(0, 1, (1, embedding_dim, 2, 2))
+    vq_layer = VectorQuantizer(num_embeddings, embedding_dim)
+    loss, quantized, perplexity, encodings = vq_layer(x)
+    print(loss, quantized.shape, perplexity, encodings.shape)
+
+    x = torch.normal(0, 1, (1, embedding_dim, 2, 2))
+    vq_layer = VectorQuantizerEMA(num_embeddings, embedding_dim)
+    loss, quantized, perplexity, encodings = vq_layer(x)
+    print(loss, quantized.shape, perplexity, encodings.shape)

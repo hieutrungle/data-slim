@@ -1,4 +1,12 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import seaborn as sns
+
+try:
+    import preprocessors
+except:
+    from . import preprocessors
 
 
 def check_normalization(self, model, ds):
@@ -16,3 +24,24 @@ def check_normalization(self, model, ds):
             f"after denormalization: min: {d_minmax[4]}, max: {d_minmax[5]};\n"
         )
     del d
+
+
+def plot_standardizer():
+    mu = 10
+    variance = 2
+    sigma = np.sqrt(variance)
+    x = np.random.normal(mu, sigma, 1000)
+    data_preprocessor = preprocessors.Standardizer(mu, variance)
+    y = data_preprocessor(torch.tensor(x), normalize=1)
+    x_hat = data_preprocessor(y, normalize=0)
+    y = y.numpy()
+    x_hat = x_hat.numpy()
+    sns.set_style("whitegrid")
+    sns.kdeplot(x, linewidth=10, label="x")
+    sns.kdeplot(y, linewidth=5, label="y")
+    sns.kdeplot(x_hat, linewidth=3, label="x_hat")
+    plt.show()
+
+
+if __name__ == "__main__":
+    plot_standardizer()
