@@ -29,7 +29,7 @@ class PositionalEmbedding(nn.Module):
 class PatchEmbedding(nn.Module):
     """Positional Embedding for images"""
 
-    def __init__(self, c_in, num_patches, projection_dim, name=None, **kwargs):
+    def __init__(self, c_in, projection_dim, num_patches, name=None, **kwargs):
         super().__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim

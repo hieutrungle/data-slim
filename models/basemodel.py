@@ -4,7 +4,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
 
 import torch
 import torch.nn as nn
-import numpy as np
 import abc
 from torchinfo import summary
 
@@ -84,7 +83,7 @@ class DecodingStack(nn.Module):
 class Encoder(BaseModel):
     def __init__(
         self,
-        c_data,
+        data_channels,
         pre_num_channels,
         num_channels,
         latent_dim,
@@ -94,7 +93,9 @@ class Encoder(BaseModel):
     ):
         super().__init__(name=name, **kwargs)
 
-        self._conv0 = cus_layers.Conv2dSame(c_data, pre_num_channels, kernel_size=1)
+        self._conv0 = cus_layers.Conv2dSame(
+            data_channels, pre_num_channels, kernel_size=1
+        )
         self.act = nn.GELU()
         self._conv1 = cus_layers.Conv2dSame(
             pre_num_channels,
@@ -136,7 +137,7 @@ class Encoder(BaseModel):
 class Decoder(BaseModel):
     def __init__(
         self,
-        c_data,
+        data_channels,
         post_num_channels,
         num_channels,
         latent_dim,
@@ -168,7 +169,7 @@ class Decoder(BaseModel):
         )
         self._conv2 = cus_layers.Conv2dTransposeSame(
             post_num_channels,
-            c_data,
+            data_channels,
             kernel_size=1,
             stride=1,
         )
@@ -180,6 +181,24 @@ class Decoder(BaseModel):
         x = self._conv1(x)
         x = self.act(x)
         x = self._conv2(x)
+        return x
+
+
+class TransformerEncoder(BaseModel):
+    def __init__(self, embed_dim, num_heads, num_layers, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.name = name
+        self.num_layers = num_layers
+
+        self._layers = nn.ModuleList()
+        for _ in range(self.num_layers):
+            self._layers.append(
+                cus_blocks.TransformerEncodingBlock(embed_dim, num_heads)
+            )
+
+    def forward(self, x, mask=None):
+        for i in range(self.num_layers):
+            x = self._layers[i](x, x, x, mask)
         return x
 
 

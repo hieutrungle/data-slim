@@ -53,7 +53,7 @@ class IdentityDataProcessor(nn.Module):
     """Identity data processor"""
 
     def __init__(self, name=None, **kwargs):
-        super().__init__(name=name, trainable=False, **kwargs)
+        super().__init__(**kwargs)
         self.name = name
 
     def forward(self, x, normalize=1):

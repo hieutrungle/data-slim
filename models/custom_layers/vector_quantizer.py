@@ -27,18 +27,10 @@ class VectorQuantizer(nn.Module):
         # Flatten input, (B, H, W, C) -> (B * H * W, C)
         flat_input = inputs.view(-1, self._embedding_dim)
 
-        # Calculate distances, (B * H * W, num_embeddings)
-        distances = (
-            torch.sum(flat_input**2, dim=1, keepdim=True)
-            + torch.sum(self._embedding.weight**2, dim=1)
-            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
-        )
-
-        # Get the smallest distance for each element in dim=0 along the dim=1
-        # (B * H * W, num_embeddings) -> (B * H * W, 1)
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        # (B * H * W, 1)
+        encoding_indices = self.get_code_indices(flat_input)
         # Encoding, one hot encoding based on the encoding_indices
-        # (B * H * W, C) -> (B * H * W, num_embeddings)
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
         encodings = torch.zeros(
             encoding_indices.shape[0], self._num_embeddings, device=inputs.device
         )
@@ -64,6 +56,19 @@ class VectorQuantizer(nn.Module):
 
         # convert quantized from BHWC -> BCHW
         return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+
+    def get_code_indices(self, flat_input):
+        # Calculate distances, (B * H * W, num_embeddings)
+        distances = (
+            torch.sum(flat_input**2, dim=1, keepdim=True)
+            + torch.sum(self._embedding.weight**2, dim=1)
+            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
+        )
+
+        # Get the smallest distance for each element in dim=0 along the dim=1
+        # (B * H * W, num_embeddings) -> (B * H * W, 1)
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        return encoding_indices
 
 
 class VectorQuantizerEMA(nn.Module):
@@ -99,18 +104,10 @@ class VectorQuantizerEMA(nn.Module):
         # Flatten input, (B, H, W, C) -> (B * H * W, C)
         flat_input = inputs.view(-1, self._embedding_dim)
 
-        # Calculate distances, (B * H * W, num_embeddings)
-        distances = (
-            torch.sum(flat_input**2, dim=1, keepdim=True)
-            + torch.sum(self._embedding.weight**2, dim=1)
-            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
-        )
-
-        # Get the smallest distance for each element in dim=0 along the dim=1
-        # (B * H * W, num_embeddings) -> (B * H * W, 1)
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        # (B * H * W, 1)
+        encoding_indices = self.get_code_indices(flat_input)
         # Encoding, one hot encoding based on the encoding_indices
-        # (B * H * W, C) -> (B * H * W, num_embeddings)
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
         encodings = torch.zeros(
             encoding_indices.shape[0], self._num_embeddings, device=inputs.device
         )
@@ -159,6 +156,19 @@ class VectorQuantizerEMA(nn.Module):
 
         # convert quantized from BHWC -> BCHW
         return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+
+    def get_code_indices(self, flat_input):
+        # Calculate distances, (B * H * W, num_embeddings)
+        distances = (
+            torch.sum(flat_input**2, dim=1, keepdim=True)
+            + torch.sum(self._embedding.weight**2, dim=1)
+            - 2 * torch.matmul(flat_input, self._embedding.weight.t())
+        )
+
+        # Get the smallest distance for each element in dim=0 along the dim=1
+        # (B * H * W, num_embeddings) -> (B * H * W, 1)
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        return encoding_indices
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class Patcher2D(nn.Module):
+class Patcher2d(nn.Module):
     def __init__(self, patch_size, name=None, **kwargs):
         super().__init__(**kwargs)
         self.patch_size = patch_size
@@ -32,7 +32,7 @@ class Patcher2D(nn.Module):
         return patches
 
 
-class InversePatcher2D(nn.Module):
+class InversePatcher2d(nn.Module):
     def __init__(self, patch_size, original_shape, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
@@ -62,7 +62,7 @@ class InversePatcher2D(nn.Module):
         return patches
 
 
-class Patcher3D(nn.Module):
+class Patcher3d(nn.Module):
     def __init__(self, patch_size, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
@@ -95,7 +95,7 @@ class Patcher3D(nn.Module):
         return patches
 
 
-class InversePatcher3D(nn.Module):
+class InversePatcher3d(nn.Module):
     def __init__(self, patch_size, original_shape, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
