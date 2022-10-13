@@ -383,3 +383,35 @@ def configure_args(args):
     )
     args.model_path = args.model_path + args.prefix_folder
     args.name = args.model_path.rpartition("/")[-1]
+
+
+def get_resume_checkpoint(args):
+    resume_checkpoint = {}
+    ckpt_files = glob.glob(os.path.join(args.model_path, "checkpoints", "*.pt"))
+    weight_path = ""
+    if args.iter == -1:
+        logger.log(f"Resume training using the best model.")
+        # Get the best model path.
+        sorted_ckpt_files = {}
+        for ckpt_file in ckpt_files:
+            sorted_ckpt_files[ckpt_file] = float(
+                ckpt_file.split("-")[-1].split("=")[-1].rpartition(".")[0]
+            )
+        sorted_ckpt_files = dict(
+            sorted(sorted_ckpt_files.items(), key=lambda item: item[1])
+        )
+        best_ckpt = list(sorted_ckpt_files.keys())[0]
+        # get epoch of the best model path.
+        resume_epoch = best_ckpt.split("/")[-1].split("-")[1].split("=")[1]
+        resume_checkpoint["resume_epoch"] = int(resume_epoch)
+        weight_path = best_ckpt
+    elif args.iter > 0:
+        resume_checkpoint["resume_epoch"] = args.iter
+        logger.log(f"Resume training at epoch {resume_checkpoint['resume_epoch']}.")
+        for ckpt_file in ckpt_files:
+            resume_epoch = ckpt_file.split("/")[-1].split("-")[1]
+            if int(resume_epoch.split("=")[1]) == args.iter:
+                weight_path = ckpt_file
+                break
+    resume_checkpoint["weight_path"] = weight_path
+    return resume_checkpoint
