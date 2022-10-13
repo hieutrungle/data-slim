@@ -1,6 +1,7 @@
 *cache*
 *temp*
 data/*/
+./logs*
 data/*.zip
 data/*.csv
 data/*.bat
