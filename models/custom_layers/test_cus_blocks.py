@@ -1,9 +1,5 @@
 import torch
-
-try:
-    from cus_blocks import *
-except:
-    from .cus_blocks import *
+from models.custom_layers.cus_blocks import *
 
 
 def _test_res_down_2d():

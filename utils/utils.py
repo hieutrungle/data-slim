@@ -9,7 +9,7 @@ import gc
 import json
 import pandas as pd
 from models import res_conv2d_attn
-from . import logger
+from utils import logger
 from pathlib import Path
 from skimage.io.collection import alphanumeric_key
 import torch

@@ -1,31 +1,10 @@
-import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
-
-# import tensorflow as tf
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torchinfo import summary
-
-try:
-    from . import basemodel
-    from .custom_layers import (
-        cus_blocks,
-        embedding,
-        patcher,
-        vector_quantizer,
-        preprocessors,
-    )
-except:
-    import basemodel
-    from custom_layers import (
-        cus_blocks,
-        embedding,
-        patcher,
-        vector_quantizer,
-        preprocessors,
-    )
+from models.custom_layers import (
+    vector_quantizer,
+    preprocessors,
+)
+from models import basemodel
 
 
 class VQCPVAE(basemodel.BaseModel):

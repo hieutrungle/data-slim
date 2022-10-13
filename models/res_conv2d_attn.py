@@ -1,22 +1,10 @@
 import torch
 from utils import logger
-
-try:
-    from . import basemodel
-    from .custom_layers import (
-        embedding,
-        patcher,
-        vector_quantizer,
-        preprocessors,
-    )
-except:
-    import basemodel
-    from custom_layers import (
-        embedding,
-        patcher,
-        vector_quantizer,
-        preprocessors,
-    )
+from models import basemodel
+from models.custom_layers import (
+    vector_quantizer,
+    preprocessors,
+)
 
 
 class VQCPVAE(basemodel.BaseModel):

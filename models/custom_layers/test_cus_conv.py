@@ -1,10 +1,7 @@
 import unittest
 import torch
 
-try:
-    import models.custom_layers.cus_layers as cus_layers
-except ImportError:
-    from . import cus_layers
+from models.custom_layers import cus_layers
 
 
 class test_custom_conv_same_odd_kernel_size(unittest.TestCase):

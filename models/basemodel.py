@@ -1,13 +1,11 @@
-import os
 import torch
 import torch.nn as nn
 import abc
 from torchinfo import summary
-
-try:
-    from custom_layers import cus_blocks, cus_layers
-except:
-    from .custom_layers import cus_blocks, cus_layers
+from models.custom_layers import (
+    cus_blocks,
+    cus_layers,
+)
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])

@@ -8,12 +8,9 @@ import json
 import copy
 import gc
 import time
-import logging
-from utils import utils
+from utils import utils, logger
 
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# TODO: convert to pytorch
 
 
 def compress_step(model, x):
