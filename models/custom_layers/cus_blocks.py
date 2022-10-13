@@ -358,3 +358,170 @@ class MultiheadAttention(nn.Module):
             return output, attention_weights
         else:
             return output
+
+
+# TODO: check this attention
+
+
+class GroupNorm32(nn.GroupNorm):
+    def forward(self, x):
+        return super().forward(x.float()).type(x.dtype)
+
+
+def conv_nd(dims, *args, **kwargs):
+    """
+    Create a 1D, 2D, or 3D convolution module.
+    """
+    if dims == 1:
+        return nn.Conv1d(*args, **kwargs)
+    elif dims == 2:
+        return nn.Conv2d(*args, **kwargs)
+    elif dims == 3:
+        return nn.Conv3d(*args, **kwargs)
+    raise ValueError(f"unsupported dimensions: {dims}")
+
+
+def zero_module(module):
+    """
+    Zero out the parameters of a module and return it.
+    """
+    for p in module.parameters():
+        p.detach().zero_()
+    return module
+
+
+def normalization(channels):
+    """
+    Make a standard normalization layer.
+
+    :param channels: number of input channels.
+    :return: an nn.Module for normalization.
+    """
+    return GroupNorm32(32, channels)
+
+
+def checkpoint(func, inputs, params, flag):
+    """
+    Evaluate a function without caching intermediate activations, allowing for
+    reduced memory at the expense of extra compute in the backward pass.
+
+    :param func: the function to evaluate.
+    :param inputs: the argument sequence to pass to `func`.
+    :param params: a sequence of parameters `func` depends on but does not
+                   explicitly take as arguments.
+    :param flag: if False, disable gradient checkpointing.
+    """
+    if flag:
+        args = tuple(inputs) + tuple(params)
+        return CheckpointFunction.apply(func, len(inputs), *args)
+    else:
+        return func(*inputs)
+
+
+class CheckpointFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, run_function, length, *args):
+        ctx.run_function = run_function
+        ctx.input_tensors = list(args[:length])
+        ctx.input_params = list(args[length:])
+        with torch.no_grad():
+            output_tensors = ctx.run_function(*ctx.input_tensors)
+        return output_tensors
+
+    @staticmethod
+    def backward(ctx, *output_grads):
+        ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
+        with torch.enable_grad():
+            # Fixes a bug where the first op in run_function modifies the
+            # Tensor storage in place, which is not allowed for detach()'d
+            # Tensors.
+            shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
+            output_tensors = ctx.run_function(*shallow_copies)
+        input_grads = torch.autograd.grad(
+            output_tensors,
+            ctx.input_tensors + ctx.input_params,
+            output_grads,
+            allow_unused=True,
+        )
+        del ctx.input_tensors
+        del ctx.input_params
+        del output_tensors
+        return (None, None) + input_grads
+
+
+class AttentionBlock(nn.Module):
+    """
+    An attention block that allows spatial positions to attend to each other.
+
+    Originally ported from here, but adapted to the N-d case.
+    https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
+    """
+
+    def __init__(self, channels, num_heads=1, use_checkpoint=False):
+        super().__init__()
+        self.channels = channels
+        self.num_heads = num_heads
+        self.use_checkpoint = use_checkpoint
+
+        self.norm = normalization(channels)
+        self.qkv = conv_nd(1, channels, channels * 3, 1)
+        self.attention = QKVAttention()
+        self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
+
+    def forward(self, x):
+        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
+
+    def _forward(self, x):
+        b, c, *spatial = x.shape
+        x = x.reshape(b, c, -1)
+        qkv = self.qkv(self.norm(x))
+        qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2])
+        h = self.attention(qkv)
+        h = h.reshape(b, -1, h.shape[-1])
+        h = self.proj_out(h)
+        return (x + h).reshape(b, c, *spatial)
+
+
+class QKVAttention(nn.Module):
+    """
+    A module which performs QKV attention.
+    """
+
+    def forward(self, qkv):
+        """
+        Apply QKV attention.
+
+        :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
+        :return: an [N x C x T] tensor after attention.
+        """
+        ch = qkv.shape[1] // 3
+        q, k, v = torch.split(qkv, ch, dim=1)
+        scale = 1 / math.sqrt(math.sqrt(ch))
+        weight = torch.einsum(
+            "bct,bcs->bts", q * scale, k * scale
+        )  # More stable with f16 than dividing afterwards
+        weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
+        return torch.einsum("bts,bcs->bct", weight, v)
+
+    @staticmethod
+    def count_flops(model, _x, y):
+        """
+        A counter for the `thop` package to count the operations in an
+        attention operation.
+
+        Meant to be used like:
+
+            macs, params = thop.profile(
+                model,
+                inputs=(inputs, timestamps),
+                custom_ops={QKVAttention: QKVAttention.count_flops},
+            )
+
+        """
+        b, c, *spatial = y[0].shape
+        num_spatial = int(np.prod(spatial))
+        # We perform two matmuls with the same number of ops.
+        # The first computes the weight matrix, the second computes
+        # the combination of the value vectors.
+        matmul_ops = 2 * b * (num_spatial**2) * c
+        model.total_ops += torch.DoubleTensor([matmul_ops])

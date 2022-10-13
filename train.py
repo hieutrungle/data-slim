@@ -3,6 +3,7 @@ from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
     EarlyStopping,
+    TQDMProgressBar,
 )
 import torch
 import torch.nn.functional as F
@@ -20,7 +21,7 @@ NUM_GPUS = len(AVAILABLE_GPUS)
 
 
 class Compressor(pl.LightningModule):
-    def __init__(self, model, lr, warmup, max_iters, weight_decay):
+    def __init__(self, model, lr, warmup, max_iters, weight_decay, resume_checkpoint):
         """
         Inputs:
             model: model to be trained
@@ -33,6 +34,8 @@ class Compressor(pl.LightningModule):
         self.save_hyperparameters(ignore=["model"])
         # Create model
         self.model = model
+        self.vq_weight = 0.5
+        self.mse_weight = 2
         # Example input for visualizing the graph in Tensorboard
         self.example_input_array = torch.randn(tuple(self.model.input_shape))
 
@@ -54,19 +57,33 @@ class Compressor(pl.LightningModule):
         x_hat = x_hat.type(torch.float32)
         x = x * mask
         x_hat = x_hat * mask
-        mse_loss = F.mse_loss(x, x_hat, reduction="none")
-        mse_loss = mse_loss.sum(dim=[1, 2, 3]).mean()
+
+        if len(self.hparams.resume_checkpoint) > 0:
+            mse_loss = F.mse_loss(x, x_hat)
+        else:
+            mse_loss = F.mse_loss(x, x_hat, reduction="none")
+            mse_loss = mse_loss.sum(dim=[1, 2, 3]).mean()
         return mse_loss, quantized_loss
 
     def configure_optimizers(self):
-        optimizer = optim.AdamW(
-            self.parameters(),
-            lr=self.hparams.lr,
-            betas=(0.9, 0.95),
-            eps=1e-08,
-            weight_decay=self.hparams.weight_decay,
-            amsgrad=False,
-        )
+        if len(self.hparams.resume_checkpoint) > 0:
+            optimizer = optim.AdamW(
+                self.parameters(),
+                lr=self.hparams.lr,
+                betas=(0.9, 0.9999),
+                eps=1e-08,
+                weight_decay=0.05,
+                amsgrad=False,
+            )
+        else:
+            optimizer = optim.AdamW(
+                self.parameters(),
+                lr=self.hparams.lr,
+                betas=(0.9, 0.95),
+                eps=1e-08,
+                weight_decay=self.hparams.weight_decay,
+                amsgrad=False,
+            )
         # Apply lr scheduler per step
         lr_scheduler = scheduler.CosineWarmupScheduler(
             optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
@@ -75,7 +92,7 @@ class Compressor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * 2 + quantized_loss
+        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
         self.log("mse_loss", mse_loss, prog_bar=True)
         self.log("quantized_loss", quantized_loss, prog_bar=True)
         self.log("train_loss", loss, on_epoch=True)
@@ -85,14 +102,14 @@ class Compressor(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * 2 + quantized_loss
+        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
         self.log("val_mse_loss", mse_loss)
         self.log("val_quantized_loss", quantized_loss)
         self.log("val_loss", loss)
 
     def test_step(self, batch, batch_idx):
         mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * 2 + quantized_loss
+        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
         self.log("test_mse_loss", mse_loss)
         self.log("test_quantized_loss", quantized_loss)
         self.log("test_loss", loss, on_epoch=True)
@@ -110,7 +127,6 @@ class Compressor(pl.LightningModule):
 def train(
     model,
     train_ds,
-    dataio,
     model_path,
     epochs,
     lr,
@@ -128,45 +144,38 @@ def train(
         warmup=epochs * len(train_ds) * warm_up_portion,
         max_iters=epochs * len(train_ds),
         weight_decay=weight_decay,
+        resume_checkpoint=resume_checkpoint,
     )
 
     # Save training parameters if we need to resume training in the future
     start_epoch = 0
     if "resume_epoch" in resume_checkpoint:
         start_epoch = resume_checkpoint["resume_epoch"]
-        filename = f"resume_start_{start_epoch}_" + "sst-{epoch:03d}-{train_loss:.2f}"
+        weight_filename = (
+            f"resume_start_{start_epoch}_" + "sst-{epoch:03d}-{train_loss:.2f}"
+        )
+        version = "resume"
     else:
-        filename = "sst-{epoch:03d}-{train_loss:.2f}"
-
+        weight_filename = "sst-{epoch:03d}-{train_loss:.2f}"
+        version = "pretrain"
     summaries_dir, checkpoints_dir = utils.mkdir_storage(model_path, resume_checkpoint)
-    summaries_dir = os.path.join(
-        summaries_dir, datetime.now().strftime("%Y%m%d-%H%M%S")
-    )
+    _callbacks = get_callbacks(checkpoints_dir, weight_filename)
 
     logger.log(f"\nStart Training...")
-    _callbacks = [
-        EarlyStopping("train_loss", patience=15, mode="min"),
-        ModelCheckpoint(
-            save_top_k=3,
-            monitor="train_loss",
-            mode="min",
-            dirpath=os.path.join(checkpoints_dir),
-            filename=filename,
-            save_weights_only=True,
-        ),
-        LearningRateMonitor("step"),
-    ]
     start_total_time = time.perf_counter()
     tfboard_logger = pl.loggers.tensorboard.TensorBoardLogger(
-        summaries_dir, log_graph=True
+        summaries_dir, name="", version=version, log_graph=True
     )
     trainer = pl.Trainer(
+        fast_dev_run=False,
         default_root_dir=os.path.join(checkpoints_dir),
         accelerator="gpu",
         devices=NUM_GPUS,
         max_epochs=epochs,
+        log_every_n_steps=100,
         logger=tfboard_logger,
         callbacks=_callbacks,
+        limit_val_batches=0.1,
         gradient_clip_algorithm="norm",
         enable_progress_bar=train_verbose,
     )
@@ -185,8 +194,24 @@ def train(
         torch.save(m.model.state_dict(), path.rpartition(".")[0] + ".pt")
     model = model.to(DEVICE)
 
-    print()
     gc.collect()
-    logger.info(f"Training completed!\n")
+    logger.info(f"\nTraining completed!\n")
 
     return model
+
+
+def get_callbacks(checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}"):
+    callbacks = [
+        EarlyStopping("train_loss", patience=15, mode="min"),
+        ModelCheckpoint(
+            save_top_k=3,
+            monitor="train_loss",
+            mode="min",
+            dirpath=checkpoints_dir,
+            filename=weight_filename,
+            save_weights_only=True,
+        ),
+        LearningRateMonitor("step"),
+        TQDMProgressBar(refresh_rate=50),
+    ]
+    return callbacks

@@ -7,7 +7,6 @@ import data_io
 from models import res_conv2d_attn
 import train
 from utils import logger, utils
-import glob
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -27,7 +26,10 @@ def main():
             args.patch_size,
             args.data_shape,
         )
-        train_ds, test_ds = dataio.get_train_test_data_loader(args.data_dir)
+        train_ds, test_ds = dataio.get_train_test_data_loader(
+            args.data_dir,
+            local_test=args.local_test,
+        )
 
         # Model
         model = res_conv2d_attn.VQCPVAE(
@@ -43,6 +45,7 @@ def main():
             logger.error(e)
 
         # Resume parameters.
+        resume_checkpoint = {}
         if args.resume:
             resume_checkpoint = utils.get_resume_checkpoint(args)
             if os.path.isfile(resume_checkpoint["weight_path"]):
@@ -62,10 +65,9 @@ def main():
             )
 
         model = train.train(
-            model,
-            train_ds,
-            dataio,
-            args.model_path,
+            model=model,
+            train_ds=train_ds,
+            model_path=args.model_path,
             test_ds=test_ds,
             resume_checkpoint=resume_checkpoint,
             **utils.args_to_dict(args, utils.train_defaults().keys()),
@@ -90,6 +92,7 @@ def create_argparser():
         verbose=False,
         resume="",
         iter=-1,  # -1 means resume from the best model
+        local_test=False,
         input_file="",
         output_file="",
     )

@@ -1,9 +1,5 @@
-import os
 import torch
-import pytorch_lightning as pl
-import torch.optim as optim
-from utils import scheduler
-import torch.nn.functional as F
+from utils import logger
 
 try:
     from . import basemodel
@@ -69,41 +65,6 @@ class VQCPVAE(basemodel.BaseModel):
             name="Encoder",
         )
 
-        self.conv_shape = self.encoder(torch.zeros(*self.input_shape)).shape[1:]
-        self.mini_patch_size = self.conv_shape[1] // 8
-
-        self.forward_patcher = patcher.Patcher2d(
-            self.mini_patch_size, name="forward_patcher"
-        )
-        self.forward_inverse_patcher = patcher.InversePatcher2d(
-            self.mini_patch_size, self.conv_shape, name="forward_inverse_patcher"
-        )
-
-        # split the latent space into patches for attention
-        # patches_shape = (B, num_patches, patch_dim)
-        self.patches_shape = self.forward_patcher(
-            torch.zeros((1, *self.conv_shape))
-        ).shape
-        assert (
-            self.patches_shape[1] % num_heads == 0
-        ), "num_heads must divide num_patches"
-        self.num_heads = num_heads
-
-        # Forward Attention
-        self.forward_patch_embedding = embedding.PatchEmbedding(
-            c_in=self.patches_shape[2],
-            projection_dim=self.patches_shape[2],
-            num_patches=self.patches_shape[1],
-            name="fordward_patch_embedding",
-        )
-        self.forward_attention = basemodel.TransformerEncoder(
-            embed_dim=self.patches_shape[2],
-            num_heads=self.num_heads,
-            num_layers=num_transformer_blocks,
-            dropout=dropout,
-            name=f"forward_attention",
-        )
-
         if ema_decay > 0.0:
             self.vq_layer = vector_quantizer.VectorQuantizerEMA(
                 num_embeddings, embedding_dim, commitment_cost, ema_decay
@@ -113,27 +74,6 @@ class VQCPVAE(basemodel.BaseModel):
                 num_embeddings, embedding_dim, commitment_cost
             )
 
-        self.backward_patcher = patcher.Patcher2d(
-            self.mini_patch_size, name="backward_patcher"
-        )
-        self.backward_inverse_patcher = patcher.InversePatcher2d(
-            self.mini_patch_size, self.conv_shape, name="backward_inverse_patcher"
-        )
-
-        # Backward attention
-        self.backward_patch_embedding = embedding.PatchEmbedding(
-            c_in=self.patches_shape[2],
-            projection_dim=self.patches_shape[2],
-            num_patches=self.patches_shape[1],
-            name="backward_patch_embedding",
-        )
-        self.backward_attention = basemodel.TransformerEncoder(
-            embed_dim=self.patches_shape[2],
-            num_heads=self.num_heads,
-            num_layers=num_transformer_blocks,
-            name=f"backward_attention",
-        )
-
         self.decoder = basemodel.Decoder(
             data_channels,
             pre_num_channels,
@@ -142,7 +82,83 @@ class VQCPVAE(basemodel.BaseModel):
             num_residual_blocks,
             name="Decoder",
         )
-        print(f"Initialization of {self.name} completed!")
+
+        if num_transformer_blocks > 0:
+
+            # Forward Attention
+            self.conv_shape = self.encoder(torch.zeros(*self.input_shape)).shape[1:]
+            self.mini_patch_size = self.conv_shape[1] // 8
+
+            self.forward_patcher = patcher.Patcher2d(
+                self.mini_patch_size, name="forward_patcher"
+            )
+            self.forward_inverse_patcher = patcher.InversePatcher2d(
+                self.mini_patch_size, self.conv_shape, name="forward_inverse_patcher"
+            )
+            # split the latent space into patches for attention
+            # patches_shape = (B, num_patches, patch_dim)
+            self.patches_shape = self.forward_patcher(
+                torch.zeros((1, *self.conv_shape))
+            ).shape
+            assert (
+                self.patches_shape[1] % num_heads == 0
+            ), "num_heads must divide num_patches"
+            self.num_heads = num_heads
+            self.forward_patch_embedding = embedding.PatchEmbedding(
+                c_in=self.patches_shape[2],
+                projection_dim=self.patches_shape[2],
+                num_patches=self.patches_shape[1],
+                name="fordward_patch_embedding",
+            )
+            self.forward_attention = basemodel.TransformerEncoder(
+                embed_dim=self.patches_shape[2],
+                num_heads=self.num_heads,
+                num_layers=num_transformer_blocks,
+                dropout=dropout,
+                name=f"forward_attention",
+            )
+
+            # Backward attention
+            self.backward_patcher = patcher.Patcher2d(
+                self.mini_patch_size, name="backward_patcher"
+            )
+            self.backward_inverse_patcher = patcher.InversePatcher2d(
+                self.mini_patch_size, self.conv_shape, name="backward_inverse_patcher"
+            )
+            self.backward_patch_embedding = embedding.PatchEmbedding(
+                c_in=self.patches_shape[2],
+                projection_dim=self.patches_shape[2],
+                num_patches=self.patches_shape[1],
+                name="backward_patch_embedding",
+            )
+            self.backward_attention = basemodel.TransformerEncoder(
+                embed_dim=self.patches_shape[2],
+                num_heads=self.num_heads,
+                num_layers=num_transformer_blocks,
+                name=f"backward_attention",
+            )
+
+        else:
+            self.forward_patcher = basemodel.Indentity(name="forward_patcher")
+            self.forward_inverse_patcher = basemodel.Indentity(
+                name="forward_inverse_patcher"
+            )
+            self.forward_patch_embedding = basemodel.Indentity(
+                name="fordward_patch_embedding"
+            )
+            self.forward_attention = basemodel.Indentity(name=f"forward_attention")
+
+            # Backward attention
+            self.backward_patcher = basemodel.Indentity(name="backward_patcher")
+            self.backward_inverse_patcher = basemodel.Indentity(
+                name="backward_inverse_patcher"
+            )
+            self.backward_patch_embedding = basemodel.Indentity(
+                name="backward_patch_embedding"
+            )
+            self.backward_attention = basemodel.Indentity(name=f"backward_attention")
+
+        logger.log(f"Initialization of {self.name} completed!")
 
     def _encode(self, x):
         """Encodes data."""

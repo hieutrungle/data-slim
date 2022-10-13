@@ -39,8 +39,10 @@ class Dataio:
             ]
         )
 
-    def get_train_test_data_loader(self, data_dir):
+    def get_train_test_data_loader(self, data_dir, local_test=False):
         filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
+        if local_test:
+            filenames = filenames[:2]
         split = int(len(filenames) * 0.99)
         train_files = filenames[:split]
         logger.log(f"number of train_files: {len(train_files)}")

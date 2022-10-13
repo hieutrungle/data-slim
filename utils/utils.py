@@ -376,10 +376,10 @@ def configure_args(args):
             args.data_channels,
         )
     args.prefix_folder = (
+        f"-patch_size_{args.patch_size}"
         f"-pre_num_channels_{args.pre_num_channels}-num_channels_{args.num_channels}"
         f"-latent_dim_{args.latent_dim}-num_embeddings_{args.num_embeddings}"
-        f"-batch_size_{args.batch_size}-patch_size_{args.patch_size}"
-        f"-abc"
+        f"-num_residual_blocks_{args.num_residual_blocks}-num_transformer_blocks_{args.num_transformer_blocks}"
     )
     args.model_path = args.model_path + args.prefix_folder
     args.name = args.model_path.rpartition("/")[-1]

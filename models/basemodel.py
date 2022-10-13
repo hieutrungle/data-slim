@@ -96,7 +96,8 @@ class Encoder(BaseModel):
         self._conv0 = cus_layers.Conv2dSame(
             data_channels, pre_num_channels, kernel_size=1
         )
-        self.act = nn.GELU()
+        self.act0 = nn.GELU()
+        self.act1 = nn.GELU()
         self._conv1 = cus_layers.Conv2dSame(
             pre_num_channels,
             pre_num_channels * 2,
@@ -125,9 +126,9 @@ class Encoder(BaseModel):
 
     def forward(self, x):
         x = self._conv0(x)
-        x = self.act(x)
+        x = self.act0(x)
         x = self._conv1(x)
-        x = self.act(x)
+        x = self.act1(x)
         x = self._conv2(x)
         x = self._encoding_stack(x)
         x = self._conv3(x)
@@ -147,7 +148,8 @@ class Decoder(BaseModel):
     ):
         super().__init__(name=name, **kwargs)
 
-        self.act = nn.GELU()
+        self.act0 = nn.GELU()
+        self.act1 = nn.GELU()
         self._conv0 = cus_layers.Conv2dTransposeSame(
             latent_dim,
             num_channels,
@@ -177,9 +179,9 @@ class Decoder(BaseModel):
     def forward(self, x):
         x = self._conv0(x)
         x = self._decoding_stack(x)
-        x = self.act(x)
+        x = self.act0(x)
         x = self._conv1(x)
-        x = self.act(x)
+        x = self.act1(x)
         x = self._conv2(x)
         return x
 
@@ -201,6 +203,15 @@ class TransformerEncoder(BaseModel):
     def forward(self, x, mask=None):
         for i in range(self.num_layers):
             x = self._layers[i](x, x, x, mask)
+        return x
+
+
+class Indentity(BaseModel):
+    def __init__(self, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+
+    def forward(self, x, mask=None):
         return x
 
 
