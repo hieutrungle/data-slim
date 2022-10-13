@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import math
 
 
 class Patcher2d(nn.Module):
@@ -12,7 +13,7 @@ class Patcher2d(nn.Module):
         # x shape: (B, C, H, W)
         # side_len = len_x = len_y
         num_channels, side_len = x.shape[1], x.shape[2]
-        num_tile = side_len // self.patch_size
+        num_tile = torch.div(side_len, self.patch_size, rounding_mode="floor")
         patch_dims = num_channels * (self.patch_size**2)
 
         patches = torch.reshape(
@@ -40,8 +41,8 @@ class InversePatcher2d(nn.Module):
         self.original_shape = original_shape
 
     def forward(self, x):
-        batch_size, num_patches = x.shape[0], torch.tensor(x.shape[1])
-        num_tile = torch.exp(torch.log(num_patches) / 2.0)
+        batch_size, num_patches = x.shape[0], x.shape[1]
+        num_tile = torch.exp(torch.log(torch.tensor(0) + num_patches) / 2.0)
         num_tile = num_tile.type(torch.int32)
 
         patches = torch.reshape(

@@ -43,30 +43,30 @@ class BaseModel(nn.Module):
 
 
 class EncodingStack(nn.Module):
-    def __init__(self, c_in, c_out, num_residual_layers, kernel_size=3, stride=2):
+    def __init__(self, c_in, c_out, num_residual_blocks, kernel_size=3, stride=2):
         super().__init__()
-        self._num_residual_layers = num_residual_layers
+        self._num_residual_blocks = num_residual_blocks
         self._layers = nn.ModuleList(
             [cus_blocks.DownSamplingResBlock2D(c_in, c_out, kernel_size, stride)]
         )
-        for _ in range(self._num_residual_layers - 1):
+        for _ in range(self._num_residual_blocks - 1):
             self._layers.append(
                 cus_blocks.DownSamplingResBlock2D(c_out, c_out, kernel_size, stride)
             )
 
     def forward(self, x):
-        for i in range(self._num_residual_layers):
+        for i in range(self._num_residual_blocks):
             x = self._layers[i](x)
         return x
 
 
 class DecodingStack(nn.Module):
-    def __init__(self, c_in, c_out, num_residual_layers, kernel_size=3, stride=2):
+    def __init__(self, c_in, c_out, num_residual_blocks, kernel_size=3, stride=2):
         super().__init__()
-        self._num_residual_layers = num_residual_layers
+        self._num_residual_blocks = num_residual_blocks
 
         self._layers = nn.ModuleList()
-        for _ in range(self._num_residual_layers - 1):
+        for _ in range(self._num_residual_blocks - 1):
             self._layers.append(
                 cus_blocks.UpSamplingResBlock2D(c_in, c_in, kernel_size, stride)
             )
@@ -75,7 +75,7 @@ class DecodingStack(nn.Module):
         )
 
     def forward(self, x):
-        for i in range(self._num_residual_layers):
+        for i in range(self._num_residual_blocks):
             x = self._layers[i](x)
         return x
 
@@ -87,7 +87,7 @@ class Encoder(BaseModel):
         pre_num_channels,
         num_channels,
         latent_dim,
-        num_residual_layers,
+        num_residual_blocks,
         name=None,
         **kwargs,
     ):
@@ -112,7 +112,7 @@ class Encoder(BaseModel):
         self._encoding_stack = EncodingStack(
             pre_num_channels * 2,
             num_channels,
-            num_residual_layers=num_residual_layers,
+            num_residual_blocks=num_residual_blocks,
             kernel_size=3,
             stride=2,
         )
@@ -141,7 +141,7 @@ class Decoder(BaseModel):
         post_num_channels,
         num_channels,
         latent_dim,
-        num_residual_layers,
+        num_residual_blocks,
         name=None,
         **kwargs,
     ):
@@ -157,7 +157,7 @@ class Decoder(BaseModel):
         self._decoding_stack = DecodingStack(
             num_channels,
             post_num_channels * 2,
-            num_residual_layers,
+            num_residual_blocks,
             kernel_size=3,
             stride=2,
         )
@@ -185,7 +185,9 @@ class Decoder(BaseModel):
 
 
 class TransformerEncoder(BaseModel):
-    def __init__(self, embed_dim, num_heads, num_layers, name=None, **kwargs):
+    def __init__(
+        self, embed_dim, num_heads, num_layers, dropout=0, name=None, **kwargs
+    ):
         super().__init__(name=name, **kwargs)
         self.name = name
         self.num_layers = num_layers
@@ -193,7 +195,7 @@ class TransformerEncoder(BaseModel):
         self._layers = nn.ModuleList()
         for _ in range(self.num_layers):
             self._layers.append(
-                cus_blocks.TransformerEncodingBlock(embed_dim, num_heads)
+                cus_blocks.TransformerEncodingBlock(embed_dim, num_heads, dropout)
             )
 
     def forward(self, x, mask=None):
@@ -206,18 +208,18 @@ if __name__ == "__main__":
     in_channels = 1
     pre_num_channels = post_num_channels = 32
     num_channels = 96
-    num_residual_layers = 3
+    num_residual_blocks = 3
     latent_dim = 128
     input_size = (1, 1, 128, 128)
     x = torch.normal(0, 1, input_size)
     model = Encoder(
-        in_channels, pre_num_channels, num_channels, latent_dim, num_residual_layers
+        in_channels, pre_num_channels, num_channels, latent_dim, num_residual_blocks
     )
     summary(model, x.shape, col_width=30, depth=3, verbose=1)
     y = model(x)
 
     model = Decoder(
-        in_channels, post_num_channels, num_channels, latent_dim, num_residual_layers
+        in_channels, post_num_channels, num_channels, latent_dim, num_residual_blocks
     )
     print()
     summary(model, y.shape, col_width=30, depth=3, verbose=1)

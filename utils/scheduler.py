@@ -1,45 +1,47 @@
-import tensorflow as tf
 from typing import Callable
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
-class WarmUpLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+class CosineWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, warmup, max_iters):
+        self.warmup = warmup
+        self.max_num_iters = max_iters
+        super().__init__(optimizer)
 
-    def __init__(
-        self,
-        initial_learning_rate: float,
-        decay_schedule_fn: Callable,
-        warmup_steps: int,
-        power: float = 1.0,
-        name: str = None,
-    ):
-        super().__init__()
-        self.initial_learning_rate = initial_learning_rate
-        self.warmup_steps = warmup_steps
-        self.power = power
-        self.decay_schedule_fn = decay_schedule_fn
-        self.name = name
+    def get_lr(self):
+        lr_factor = self.get_lr_factor(epoch=self.last_epoch)
+        return [base_lr * lr_factor for base_lr in self.base_lrs]
 
-    def __call__(self, step):
-        with tf.name_scope(self.name or "WarmUp") as name:
-            # Implements polynomial warmup. i.e., if global_step < warmup_steps, the
-            # learning rate will be `global_step/num_warmup_steps * init_lr`.
-            global_step_float = tf.cast(step, tf.float32)
-            warmup_steps_float = tf.cast(self.warmup_steps, tf.float32)
-            warmup_percent_done = global_step_float / warmup_steps_float
-            warmup_learning_rate = self.initial_learning_rate * \
-                tf.math.pow(warmup_percent_done, self.power)
-            return tf.cond(
-                global_step_float < warmup_steps_float,
-                lambda: warmup_learning_rate,
-                lambda: self.decay_schedule_fn(step - self.warmup_steps),
-                name=name,
-            )
+    def get_lr_factor(self, epoch):
+        lr_factor = 0.5 * (
+            1
+            + np.cos(np.pi * (epoch - self.warmup) / (self.max_num_iters - self.warmup))
+        )
+        if epoch <= self.warmup:
+            lr_factor *= epoch * 1.0 / self.warmup
+        return lr_factor
 
-    def get_config(self):
-        return {
-            "initial_learning_rate": self.initial_learning_rate,
-            "decay_schedule_fn": self.decay_schedule_fn,
-            "warmup_steps": self.warmup_steps,
-            "power": self.power,
-            "name": self.name,
-        }
+
+if __name__ == "__main__":
+
+    # Needed for initializing the lr scheduler
+    p = torch.nn.Parameter(torch.empty(4, 4))
+    optimizer = torch.optim.Adam([p], lr=4e-3)
+    lr_scheduler = CosineWarmupScheduler(optimizer=optimizer, warmup=20, max_iters=100)
+    for i in range(100):
+        lr_scheduler.step()
+        print(f"{i} lr: {lr_scheduler.get_lr()}")
+
+    # Plotting
+    epochs = list(range(100))
+    sns.set()
+    plt.figure(figsize=(8, 3))
+    plt.plot(epochs, [lr_scheduler.get_lr_factor(e) for e in epochs])
+    plt.ylabel("Learning rate factor")
+    plt.xlabel("Iterations (in batches)")
+    plt.title("Cosine Warm-up Learning Rate Scheduler")
+    plt.show()
+    sns.reset_orig()

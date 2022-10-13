@@ -1,0 +1,85 @@
+Logging to ./logs/2022-10-12-19-48-03-681104
+************************* BEGIN *************************
+
+command = train
+data_dir = ../data/tccs/ocean/SST_modified
+model_path = ./saved_models/model-pre_num_channels_8-num_channels_16-latent_dim_64-num_embeddings_128-batch_size_32-patch_size_64-tmp
+data_height = 2400
+data_width = 3600
+data_depth = -1
+data_channels = 1
+lr = 0.0004
+lr_min = 1e-06
+warm_up_portion = 0.15
+weight_decay = 0.0001
+batch_size = 32
+epochs = 4
+ema_rate = 0.99
+log_interval = 10
+save_interval = 10
+resume = 
+iter = -1
+use_fp16 = False
+verbose = True
+train_verbose = True
+input_file = 
+output_file = 
+patch_size = 64
+patch_depth = -1
+patch_channels = 1
+pre_num_channels = 8
+num_channels = 16
+latent_dim = 64
+num_embeddings = 128
+num_residual_blocks = 3
+num_transformer_blocks = 2
+num_heads = 4
+dropout = 0.0
+ema_decay = 0.99
+commitment_cost = 0.25
+name = model-pre_num_channels_8-num_channels_16-latent_dim_64-num_embeddings_128-batch_size_32-patch_size_64-tmp
+data_shape = (1, 2400, 3600, 1)
+prefix_folder = -pre_num_channels_8-num_channels_16-latent_dim_64-num_embeddings_128-batch_size_32-patch_size_64-tmp
+
+Using device: cuda:0
+NVIDIA GeForce RTX 3060 Ti
+Memory Usage: 
+Allocated: 0.0 GB
+Cached: 0.0 GB
+
+Pytorch version: 1.12.1+cu116
+
+number of train_files: 1
+train_dataset: OverlappingDataGen(name: train; shuffle: True; patch_shape: 2x[1, 1, 64, 64])
+number of test_files: 1
+test_dataset: DisjointDataGen(name: test; shuffle: False; patch_shape: 2x[1, 1, 64, 64])
+Training Parameters:
+train.num_time_slices = 120
+train.num_patch_per_time_slice = 2094
+train.num_patches = 251280
+train.num_batches = 7853
+train.num_batch_per_time_slice = 66
+train.kernel_size = [64 64]
+train.stride = 56
+train.padding = True
+test.num_time_slices = 120
+test.num_patch_per_time_slice = 2166
+test.num_patches = 259920
+test.num_batches = 8123
+test.num_batch_per_time_slice = 68
+test.padded_shape = (1, 2432, 3648, 1)
+test._patch_size = 64
+test._original_shape = (1, 2400, 3600, 1)
+test.pad_dim = [(0, 0), (16, 16), (24, 24), (0, 0)]
+
+train_ds: <torch.utils.data.dataloader.DataLoader object at 0x7fd5eb90ddc0>
+test_ds: <torch.utils.data.dataloader.DataLoader object at 0x7fd5ec53d0a0>
+patch_size: 64
+num_time_slices: 120
+num_patches: 251280
+steps_per_epoch: 7853
+steps_per_execution: 786
+test_steps: 8123
+len(train_ds): 7852
+Start Training...
+Training time: 12.50 seconds

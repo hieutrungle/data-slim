@@ -1,20 +1,21 @@
 import sys
 import os
-
-# os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
+from torchinfo import summary
 import torch
 import argparse
 from pathlib import Path
 from skimage.io.collection import alphanumeric_key
 import glob
 import logging.config
+import torchvision
+from torchvision import transforms
 
 # import train
 import data_io
 import numpy as np
 
-# from models import res_conv2d_attn
+from models import res_conv2d_attn
+import tmp_train
 
 # import compression
 # from utils import utils
@@ -75,14 +76,14 @@ def main(args):
         )
 
         logger.info(f"train_dataset: {train_dataset}")
-        train_dataloader = dataio.get_data_loader(
+        train_ds = dataio.get_data_loader(
             train_dataset,
             drop_last=True,
             shuffle=True,
             num_workers=4 * num_gpus,
             pin_memory=True,
         )
-        # for i, (data, mask) in enumerate(train_dataloader):
+        # for i, (data, mask) in enumerate(train_ds):
         #     print(f"{i}: {data.shape}, {mask.shape}")
         #     if i >= 5:
 
@@ -97,9 +98,10 @@ def main(args):
         # # plt.imshow(train_dataset.da[0])
 
         # # fig = plt.figure(figsize=(10, 10))
-        # plt.imshow(train_dataset.mask[0])
+        # # plt.imshow(train_dataset.mask[0])
 
-        # plt.show()
+        # # plt.show()
+        # print("\n\n")
 
         # create test_ds
         test_files = filenames[split:]
@@ -108,52 +110,45 @@ def main(args):
             test_files, fillna_value=fillna_value, name="test", shuffle=False
         )
         logger.info(f"test_dataset: {test_dataset}")
-        test_dataloader = dataio.get_data_loader(
+        test_ds = dataio.get_data_loader(
             test_dataset,
             num_workers=4 * num_gpus,
         )
-        dataio.log_training_parameters()
 
-        sys.exit()
+        dataio.log_training_parameters()
+        # sys.exit()
 
         # Get model.
         input_shape = [
-            args.model_patch_size,
-            args.model_patch_size,
+            args.batch_size,
             1,
+            args.model_patch_size,
+            args.model_patch_size,
         ]
         model = res_conv2d_attn.VQCPVAE(
-            in_shape=input_shape,
+            input_shape=input_shape,
+            pre_num_channels=args.pre_num_channels,
+            num_channels=args.num_channels,
             latent_dim=args.latent_dim,
             num_embeddings=args.num_embeddings,
-            num_channels=args.num_channels,
-            num_conv_layers=args.num_conv_layers,
+            num_residual_layers=args.num_residual_layers,
+            num_transformer_layers=args.num_transformer_layers,
+            commitment_cost=0.25,
+            decay=0.99,
             name=args.model_name,
         )
-
-        sys.exit()
 
         try:
             stats = dataio.get_data_statistics(args.data_path)
             mean = stats["mean"]
             std = stats["std"]
-            model.set_standardizer_layer(mean, torch.square(std), 1e-6)
+            model.set_standardizer_layer(mean, std**2, 1e-6)
         except Exception as e:
             logger.info("No statistics file available. Cannot use Stadardization.")
             logger.error(e, exc_info=True)
-        model.build(input_shape=[None] + input_shape)
 
-        if args.verbose:
-            try:
-                model.model().summary()
-            except KeyboardInterrupt:
-                logging.info("Keyboard interrupt, stopping")
-                sys.exit(0)
-            except Exception as e:
-                model.summary()
-                logger.error(e, exc_info=True)
-
-        sys.exit()
+        # if args.verbose:
+        #     summary(model, input_shape, col_width=25, depth=3, verbose=1)
 
         # Resume parameters.
         resume_checkpoint = {}
@@ -180,6 +175,18 @@ def main(args):
                 logger.error(e, exc_info=True)
                 logger.info(f"Cannot load model weights. Training from scratch.")
                 resume_checkpoint = {}
+
+        tmp_train.train(
+            args,
+            model,
+            train_ds,
+            dataio,
+            args.epochs_til_ckpt,
+            resume_checkpoint,
+            test_ds,
+        )
+
+        sys.exit()
 
         # Train.
         trainer = train.Trainer(args)
@@ -339,16 +346,16 @@ def parse_args():
         "--random_seed", type=int, default=None, help="Random seed. Default: None"
     )
     train_args.add_argument(
+        "--pre_num_channels",
+        type=int,
+        default=32,
+        help="Number of channel per preactivate layer.",
+    )
+    train_args.add_argument(
         "--num_channels",
         type=int,
         default=96,
         help="Number of channel per intermediate layer.",
-    )
-    train_args.add_argument(
-        "--num_conv_layers",
-        type=int,
-        default=3,
-        help="Number of scaling layers.",
     )
     train_args.add_argument(
         "--latent_dim",
@@ -361,6 +368,18 @@ def parse_args():
         type=int,
         default=128,
         help="number of embeddings of the vector quantizer layer.",
+    )
+    train_args.add_argument(
+        "--num_residual_layers",
+        type=int,
+        default=3,
+        help="Number of residual layers.",
+    )
+    train_args.add_argument(
+        "--num_transformer_layers",
+        type=int,
+        default=2,
+        help="Number of transformer layers.",
     )
     train_args.add_argument(
         "--train_path",

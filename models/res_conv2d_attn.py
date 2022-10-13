@@ -1,17 +1,13 @@
 import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
-
-# import tensorflow as tf
 import torch
-import torch.nn as nn
+import pytorch_lightning as pl
+import torch.optim as optim
+from utils import scheduler
 import torch.nn.functional as F
-from torchinfo import summary
 
 try:
     from . import basemodel
     from .custom_layers import (
-        cus_blocks,
         embedding,
         patcher,
         vector_quantizer,
@@ -20,7 +16,6 @@ try:
 except:
     import basemodel
     from custom_layers import (
-        cus_blocks,
         embedding,
         patcher,
         vector_quantizer,
@@ -33,25 +28,35 @@ class VQCPVAE(basemodel.BaseModel):
 
     def __init__(
         self,
-        in_shape,
+        patch_size,
+        patch_depth,
+        patch_channels,
         pre_num_channels,
         num_channels,
         latent_dim,
         num_embeddings,
-        num_residual_layers,
-        num_transformer_layers,
-        commitment_cost=0.25,
-        decay=0,
+        num_residual_blocks,
+        num_transformer_blocks,
+        num_heads,
+        dropout,
+        ema_decay,
+        commitment_cost,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
-        data_channels = in_shape[1]  # in_shape = (B, C, H, W)
+        if patch_depth <= 0:
+            self.input_shape = [1, patch_channels, patch_size, patch_size]
+        else:
+            self.input_shape = [1, patch_channels, patch_size, patch_size, patch_size]
+
+        data_channels = self.input_shape[1]  # in_shape = (B, C, H, W)
+        embedding_dim = latent_dim
         self.pre_num_channels = pre_num_channels
         self.num_channels = num_channels
         self.latent_dim = latent_dim
         self.num_embeddings = num_embeddings
-        self.num_residual_layers = num_residual_layers
+        self.num_residual_blocks = num_residual_blocks
         self.vq_weight = 1.0
 
         self.data_preprocessor = preprocessors.IdentityDataProcessor()
@@ -60,24 +65,29 @@ class VQCPVAE(basemodel.BaseModel):
             pre_num_channels,
             num_channels,
             latent_dim,
-            num_residual_layers,
+            num_residual_blocks,
             name="Encoder",
         )
 
-        self.conv_shape = self.encoder(torch.zeros(*in_shape)).shape[1:]
-        print(f"conv_shape: {self.conv_shape}")
+        self.conv_shape = self.encoder(torch.zeros(*self.input_shape)).shape[1:]
         self.mini_patch_size = self.conv_shape[1] // 8
-        print(f"mini_patch_size: {self.mini_patch_size}")
 
-        self.patcher = patcher.Patcher2d(self.mini_patch_size, name="Patcher")
-        self.inverse_patcher = patcher.InversePatcher2d(
-            self.mini_patch_size, self.conv_shape, name="InversePatcher"
+        self.forward_patcher = patcher.Patcher2d(
+            self.mini_patch_size, name="forward_patcher"
+        )
+        self.forward_inverse_patcher = patcher.InversePatcher2d(
+            self.mini_patch_size, self.conv_shape, name="forward_inverse_patcher"
         )
 
         # split the latent space into patches for attention
         # patches_shape = (B, num_patches, patch_dim)
-        self.patches_shape = self.patcher(torch.zeros((1, *self.conv_shape))).shape
-        self.num_heads = self.patches_shape[1] // 16
+        self.patches_shape = self.forward_patcher(
+            torch.zeros((1, *self.conv_shape))
+        ).shape
+        assert (
+            self.patches_shape[1] % num_heads == 0
+        ), "num_heads must divide num_patches"
+        self.num_heads = num_heads
 
         # Forward Attention
         self.forward_patch_embedding = embedding.PatchEmbedding(
@@ -86,22 +96,29 @@ class VQCPVAE(basemodel.BaseModel):
             num_patches=self.patches_shape[1],
             name="fordward_patch_embedding",
         )
-        # TODO: check multi-head attn
         self.forward_attention = basemodel.TransformerEncoder(
             embed_dim=self.patches_shape[2],
             num_heads=self.num_heads,
-            num_layers=num_transformer_layers,
+            num_layers=num_transformer_blocks,
+            dropout=dropout,
             name=f"forward_attention",
         )
 
-        if decay > 0.0:
+        if ema_decay > 0.0:
             self.vq_layer = vector_quantizer.VectorQuantizerEMA(
-                num_embeddings, latent_dim, commitment_cost, decay
+                num_embeddings, embedding_dim, commitment_cost, ema_decay
             )
         else:
             self.vq_layer = vector_quantizer.VectorQuantizer(
-                num_embeddings, latent_dim, commitment_cost
+                num_embeddings, embedding_dim, commitment_cost
             )
+
+        self.backward_patcher = patcher.Patcher2d(
+            self.mini_patch_size, name="backward_patcher"
+        )
+        self.backward_inverse_patcher = patcher.InversePatcher2d(
+            self.mini_patch_size, self.conv_shape, name="backward_inverse_patcher"
+        )
 
         # Backward attention
         self.backward_patch_embedding = embedding.PatchEmbedding(
@@ -113,7 +130,7 @@ class VQCPVAE(basemodel.BaseModel):
         self.backward_attention = basemodel.TransformerEncoder(
             embed_dim=self.patches_shape[2],
             num_heads=self.num_heads,
-            num_layers=num_transformer_layers,
+            num_layers=num_transformer_blocks,
             name=f"backward_attention",
         )
 
@@ -122,7 +139,7 @@ class VQCPVAE(basemodel.BaseModel):
             pre_num_channels,
             num_channels,
             latent_dim,
-            num_residual_layers,
+            num_residual_blocks,
             name="Decoder",
         )
         print(f"Initialization of {self.name} completed!")
@@ -132,18 +149,18 @@ class VQCPVAE(basemodel.BaseModel):
         x = self.data_preprocessor(x, normalize=1)
         y = self.encoder(x)
 
-        y_patches = self.patcher(y)
+        y_patches = self.forward_patcher(y)
         y_embedding = self.forward_patch_embedding(y_patches)
         y_attn = self.forward_attention(y_embedding, mask=None)
-        y_attn = self.inverse_patcher(y_attn)
+        y_attn = self.forward_inverse_patcher(y_attn)
         return y_attn
 
     def _decode(self, quantized):
         """Decodes data."""
-        y_hat_patches = self.patcher(quantized)
+        y_hat_patches = self.backward_patcher(quantized)
         y_hat_embedding = self.backward_patch_embedding(y_hat_patches)
         y_hat_attn = self.backward_attention(y_hat_embedding, mask=None)
-        y_hat = self.inverse_patcher(y_hat_attn)
+        y_hat = self.backward_inverse_patcher(y_hat_attn)
 
         x_hat = self.decoder(y_hat)
         x_hat = self.data_preprocessor(x_hat, normalize=0)
@@ -165,14 +182,14 @@ class VQCPVAE(basemodel.BaseModel):
 
     def compress(self, x):
         """Compresses data."""
-        y_attn = self._encode(x)  # (B, C, H, W)
-        y_attn = y_attn.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
-        flattened = torch.reshape(y_attn, [-1, self.latent_dim])
+        y = self._encode(x)  # (B, C, H, W)
+        y = y.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+        flattened = torch.reshape(y, [-1, self.latent_dim])
 
         # (BxHxW, 1)
         encoding_indices = self.vq_layer.get_code_indices(flattened)
         # Preserve spatial shapes of both image and latents.
-        y_shape = y_attn.shape[1:]
+        y_shape = y.shape[1:]
         return encoding_indices, y_shape
 
     def decompress(self, encoding_indices, y_shape):
@@ -195,85 +212,4 @@ class VQCPVAE(basemodel.BaseModel):
 
 
 if __name__ == "__main__":
-    in_channels = 1
-    pre_num_channels = post_num_channels = 32
-    num_channels = 96
-    latent_dim = 128
-    num_embeddings = 256
-    num_residual_layers = 3
-    num_transformer_layers = 2
-
-    in_shape = (1, 1, 128, 128)
-    x = torch.normal(0, 1, in_shape)
-    model = VQCPVAE(
-        in_shape,
-        pre_num_channels,
-        num_channels,
-        latent_dim,
-        num_embeddings,
-        num_residual_layers,
-        num_transformer_layers,
-        commitment_cost=0.25,
-        decay=0.99,
-        name=None,
-    )
-    model.set_standardizer_layer(1, 1)
-    summary(model, x.shape, col_width=25, depth=3, verbose=1)
-
-    encoding_indices, y_shape = model.compress(x)
-    print(f"encoding_indices.shape = {encoding_indices.shape}; y_shape: {y_shape}")
-    x_hat = model.decompress(encoding_indices, y_shape)
-    print(f"x_hat.shape = {x_hat.shape}")
-
-
-#     @property
-#     def metrics(self):
-#         return [self.total_loss, self.mse, self.vq_loss]
-
-#     def train_step(self, inputs):
-#         x = tf.cast(inputs[0], self.compute_dtype)
-#         x_mask = tf.cast(inputs[1], self.compute_dtype)
-#         x_mask = tf.ensure_shape(x_mask, x.shape)
-#         with tf.GradientTape() as tape:
-#             x_hat = self(x)
-#             mse = tf.reduce_mean((x * x_mask - x_hat * x_mask) ** 2)
-#             total_loss = 2 * mse + self.vq_weight * sum(self.losses)
-
-#         # Backpropagation
-#         grads = tape.gradient(total_loss, self.trainable_variables)
-#         grads = [(tf.clip_by_norm(grad, clip_norm=2.0)) for grad in grads]
-#         self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
-
-#         # Loss tracking
-#         self.total_loss.update_state(total_loss)
-#         self.mse.update_state(mse)
-#         self.vq_loss.update_state(sum(self.losses))
-
-#         return {m.name: m.result() for m in [self.total_loss, self.mse, self.vq_loss]}
-
-#     def test_step(self, inputs):
-#         x = tf.cast(inputs[0], self.compute_dtype)
-#         x_mask = tf.cast(inputs[1], self.compute_dtype)
-#         x_mask = tf.ensure_shape(x_mask, x.shape)
-#         x_hat = self(x)
-#         mse = tf.reduce_mean((x * x_mask - x_hat * x_mask) ** 2)
-#         total_loss = 2 * mse + self.vq_weight * sum(self.losses)
-
-#         # Loss tracking
-#         self.total_loss.update_state(total_loss)
-#         self.mse.update_state(mse)
-#         self.vq_loss.update_state(sum(self.losses))
-
-#         return {m.name: m.result() for m in [self.total_loss, self.mse, self.vq_loss]}
-
-#     def compile(self, **kwargs):
-#         super().compile(
-#             loss=None,
-#             metrics=None,
-#             loss_weights=None,
-#             weighted_metrics=None,
-#             **kwargs,
-#         )
-#         self.total_loss = tf.keras.metrics.Mean(name="loss")
-#         self.mse = tf.keras.metrics.Mean(name="mse")
-#         self.vq_loss = tf.keras.metrics.Mean(name="vq_loss")
+    pass

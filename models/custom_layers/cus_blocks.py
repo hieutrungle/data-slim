@@ -10,6 +10,7 @@ try:
 except:
     from . import gdn
 import numpy as np
+import math
 
 
 class DownSamplingBlock(nn.Module):
@@ -234,15 +235,17 @@ class ForwardMLP(nn.Module):
 
 
 class TransformerEncodingBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, name=None, **kwargs):
+    def __init__(self, embed_dim, num_heads, dropout=0, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
         self.embed_dim = embed_dim
         self.num_heads = num_heads
+        self.dropout = dropout
 
-        self.multihead_attention = nn.MultiheadAttention(
+        self.multihead_attention = MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
+            dropout=dropout,
             batch_first=True,
         )
         self.ffn = nn.Sequential(
@@ -253,15 +256,105 @@ class TransformerEncodingBlock(nn.Module):
 
         self.layernorm_0 = nn.LayerNorm(embed_dim, eps=1e-6)
         self.layernorm_1 = nn.LayerNorm(embed_dim, eps=1e-6)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, q, k, v, mask=None):
         # (batch_size, target_seq_len, embed_dim)
-        attention_output_0, _ = self.multihead_attention(q, k, v, mask)
-        attention_output_0 = self.layernorm_0(attention_output_0 + q)
+        x = q
+        # print("\n\n")
+        # print(f"q: {q.type()}")
+        # print(f"k: {k.type()}")
+        # print(f"v: {v.type()}")
+        # print(f"x shape: {x.shape}")
+        # if mask is not None:
+        #     print(f"mask: {mask.type()}")
+        # print("\n\n")
+        attn_out, _ = self.multihead_attention(x, x, x)
+        x = x + self.dropout(attn_out)
+        x = self.layernorm_0(x)
 
         # (batch_size, target_seq_len, embed_dim)
-        ffn_output = self.ffn(attention_output_0)
+        linear_out = self.ffn(x)
+        x = x + self.dropout(linear_out)
         # (batch_size, target_seq_len, embed_dim)
-        attention_output_1 = self.layernorm_1(attention_output_0 + ffn_output)
+        attention_output_1 = self.layernorm_1(x)
 
         return attention_output_1
+
+
+def scaled_dot_product(q, k, v, mask=None, dropout_module=None):
+    d_k = q.size()[-1]
+    attn_logits = torch.matmul(q, k.transpose(-2, -1))
+    attn_logits = attn_logits / math.sqrt(d_k)
+    if mask is not None:
+        attn_logits = attn_logits.masked_fill(mask == 0, -9e15)
+    attention_weights = F.softmax(attn_logits, dim=-1)
+    if dropout_module is not None:
+        attention_weights = dropout_module(attention_weights)
+    values = torch.matmul(attention_weights, v)
+    return values, attention_weights
+
+
+class MultiheadAttention(nn.Module):
+    def __init__(
+        self, embed_dim, num_heads, dropout=0.0, bias=True, name=None, **kwargs
+    ):
+        super().__init__()
+        assert (
+            embed_dim % num_heads == 0
+        ), "Embedding dimension must be 0 modulo number of heads."
+        self.name = name
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.bias = bias
+
+        # Stack all weight matrices 1...h together for efficiency
+        # Note that in many implementations you see "bias=False" which is optional
+        self.q_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.v_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.k_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+        self.out = nn.Linear(embed_dim, embed_dim)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        # Original Transformer initialization, see PyTorch documentation
+        nn.init.xavier_uniform_(self.q_linear.weight)
+        nn.init.xavier_uniform_(self.v_linear.weight)
+        nn.init.xavier_uniform_(self.k_linear.weight)
+        if self.bias:
+            nn.init.constant_(self.q_linear.bias.data, 0.0)
+            nn.init.constant_(self.v_linear.bias.data, 0.0)
+            nn.init.constant_(self.k_linear.bias.data, 0.0)
+        nn.init.xavier_uniform_(self.out.weight)
+        nn.init.constant_(self.out.bias.data, 0)
+
+    def forward(self, q, k, v, mask=None, return_attention=True):
+        batch_size = q.size(0)
+
+        # perform linear operation and split into h heads
+
+        k = self.k_linear(k).view(batch_size, -1, self.num_heads, self.head_dim)
+        q = self.q_linear(q).view(batch_size, -1, self.num_heads, self.head_dim)
+        v = self.v_linear(v).view(batch_size, -1, self.num_heads, self.head_dim)
+
+        # transpose to get dimensions batch_size * num_heads * sl * head_dim
+
+        k = k.transpose(1, 2).contiguous()
+        q = q.transpose(1, 2).contiguous()
+        v = v.transpose(1, 2).contiguous()
+
+        # Determine value outputs
+        values, attention_weights = scaled_dot_product(
+            q, k, v, mask=mask, dropout_module=self.dropout
+        )
+        values = values.permute(0, 2, 1, 3)  # [Batch, SeqLen, Head, Dims]
+        values = values.reshape(batch_size, -1, self.embed_dim)
+        output = self.out(values)
+
+        if return_attention:
+            return output, attention_weights
+        else:
+            return output

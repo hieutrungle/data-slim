@@ -40,7 +40,9 @@ class PatchEmbedding(nn.Module):
         self.projection = nn.Linear(c_in, projection_dim)
 
     def forward(self, patch):
-        positions = torch.arange(start=0, end=self.num_patches, step=1)
+        positions = torch.arange(
+            start=0, end=self.num_patches, step=1, device=patch.device
+        )
         # (num_patches, projection_dim)
         embedded_positions = self.position_embedding(positions)
         embeded_patch = self.projection(patch)

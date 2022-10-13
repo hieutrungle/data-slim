@@ -1,48 +1,81 @@
 import sys
 import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
 import xarray as xr
 import numpy as np
-import logging
 import random
 import torch.utils.data as data
 from utils import padder
 from utils import sliding_window as sw
 import matplotlib.pyplot as plt
-from pathlib import Path
-from skimage.io.collection import alphanumeric_key
 import glob
 import pandas as pd
 import random
+from torchvision import transforms
+import torch
 import dask
 
 dask.config.set(scheduler="synchronous")
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+from utils import logger, utils
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 
 class Dataio:
     def __init__(
         self,
         batch_size,
-        data_patch_size,
-        model_patch_size,
-        original_shape,
+        patch_size,
+        data_shape,
     ):
         self.batch_size = batch_size
-        self.data_patch_size = data_patch_size
-        self.model_patch_size = model_patch_size
-        self.original_shape = original_shape
+        self.patch_size = patch_size
+        self.data_shape = data_shape
         self.params = {}
+        self.transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+            ]
+        )
+
+    def get_train_test_data_loader(self, data_dir):
+        filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
+        filenames = filenames[:2]
+        split = int(len(filenames) * 0.99)
+        train_files = filenames[:split]
+        logger.log(f"number of train_files: {len(train_files)}")
+        train_dataset = self.create_overlapping_generator(
+            train_files, fillna_value=fillna_value, name="train", shuffle=True
+        )
+        logger.log(f"train_dataset: {train_dataset}")
+        train_ds = self.get_data_loader(
+            train_dataset,
+            drop_last=True,
+            shuffle=True,
+            num_workers=4 * NUM_GPUS,
+            pin_memory=True,
+        )
+        # create test_ds
+        test_files = filenames[split:]
+        logger.log(f"number of test_files: {len(test_files)}")
+        test_dataset = self.create_disjoint_generator(
+            test_files, fillna_value=fillna_value, name="test", shuffle=False
+        )
+        logger.log(f"test_dataset: {test_dataset}")
+        test_ds = self.get_data_loader(
+            test_dataset,
+            num_workers=4 * NUM_GPUS,
+        )
+        self.log_training_parameters()
+        return train_ds, test_ds
 
     def get_num_batch_per_time_slice(self):
         # number of disjoint tiles per time slice for compression purpose
         sizes = []
-        for size in self.original_shape[1:-1]:
-            num_patch = size // self.data_patch_size
-            if size % self.data_patch_size == 0:
+        for size in self.data_shape[1:-1]:
+            num_patch = size // self.patch_size
+            if size % self.patch_size == 0:
                 sizes.append(num_patch)
             else:
                 sizes.append(num_patch + 1)
@@ -54,11 +87,12 @@ class Dataio:
         data_gen = DisjointDataGen(
             filenames,
             batch_size=self.batch_size,
-            data_patch_size=self.data_patch_size,
-            original_shape=self.original_shape,
+            patch_size=self.patch_size,
+            data_shape=self.data_shape,
             fillna_value=fillna_value,
             shuffle=shuffle,
             name=name,
+            transform=self.transform,
         )
         self._update_parameters(data_gen, name=name)
         return data_gen
@@ -68,14 +102,15 @@ class Dataio:
     ):
         data_gen = OverlappingDataGen(
             filenames,
-            kernel_size=self.data_patch_size,
-            stride=self.data_patch_size - 8,
+            kernel_size=self.patch_size,
+            stride=self.patch_size - 8,
             batch_size=self.batch_size,
-            data_patch_size=self.data_patch_size,
-            original_shape=self.original_shape,
+            patch_size=self.patch_size,
+            data_shape=self.data_shape,
             fillna_value=fillna_value,
             shuffle=shuffle,
             name=name,
+            transform=self.transform,
         )
         self._update_parameters(data_gen, name=name)
         return data_gen
@@ -86,11 +121,12 @@ class Dataio:
         data_gen = CompressionDataGen(
             filenames,
             batch_size=self.batch_size,
-            data_patch_size=self.data_patch_size,
-            original_shape=self.original_shape,
+            patch_size=self.patch_size,
+            data_shape=self.data_shape,
             fillna_value=fillna_value,
             shuffle=shuffle,
             name=name,
+            transform=self.transform,
         )
         self._update_parameters(data_gen, name=name)
         return data_gen
@@ -101,7 +137,7 @@ class Dataio:
         drop_last=False,
         shuffle=False,
         num_workers=4,
-        prefetch_factor=2,
+        prefetch_factor=4,
         pin_memory=False,
     ):
         self._check_generator_type(data_gen)
@@ -169,40 +205,7 @@ class Dataio:
         message = "\n"
         for k, v in self.get_training_parameters().items():
             message += k + " = " + str(v) + "\n"
-        logger.info(f"Training Parameters:{message}")
-
-    def get_filenames(self, data_path, prefix=".nc"):
-        if data_path.endswith(".nc"):
-            filenames = [data_path]
-        else:
-            filenames = sorted(
-                glob.glob(os.path.join(data_path, "*" + prefix)), key=alphanumeric_key
-            )
-        return filenames
-
-    def get_data_statistics(self, data_path):
-        if data_path.endswith(".nc"):
-            filename = Path(data_path)
-            parent_folder = filename.parent.absolute()
-            filename = glob.glob(os.path.join(parent_folder, "*.csv"))[0]
-        else:
-            filename = glob.glob(os.path.join(data_path, "*.csv"))[0]
-
-        df = pd.read_csv(filename, index_col=0)
-        stats = {}
-        for col in ["mean", "median", "std"]:
-            stats[col] = df[col].mean()
-        return stats
-
-    def get_filenames_and_fillna_value(self, data_path, prefix=".nc"):
-        filenames = self.get_filenames(data_path, prefix=prefix)
-        try:
-            stats = self.get_data_statistics(data_path)
-            fillna_value = stats["mean"]
-        except:
-            logger.info("No statistics file found. Using default nan_values = 0.")
-            fillna_value = 0
-        return filenames, fillna_value
+        logger.log(f"Training Parameters:{message}")
 
 
 class BaseDataGen(data.Dataset):
@@ -215,11 +218,12 @@ class BaseDataGen(data.Dataset):
         self,
         filenames,
         batch_size,
-        original_shape,
-        data_patch_size,
+        data_shape,
+        patch_size,
         fillna_value,
         shuffle,
         name,
+        transform=None,
     ):
         super().__init__()
         self.num_outputs = None
@@ -227,12 +231,14 @@ class BaseDataGen(data.Dataset):
         self.fillna_value = fillna_value
         self.name = name
         self.shuffle = shuffle
-        self.data_patch_size = data_patch_size
-        data_shape = [original_shape[0]]
-        for i in range(len(original_shape) - 2):
-            data_shape.append(data_patch_size)
-        data_shape.append(original_shape[-1])
-        self.data_shape = data_shape
+        self.patch_size = patch_size
+        self.transform = transform
+
+        patch_shape = [data_shape[0]]
+        patch_shape.append(data_shape[-1])
+        for i in range(len(data_shape) - 2):
+            patch_shape.append(patch_size)
+        self.patch_shape = patch_shape
         self.ds = None
 
     def __repr__(self):
@@ -240,7 +246,7 @@ class BaseDataGen(data.Dataset):
             f"{self.__class__.__name__}(name: {self.name}; " f"shuffle: {self.shuffle}"
         )
         if self.num_outputs is not None:
-            message += f"; data_shape: {self.num_outputs}x{self.data_shape}"
+            message += f"; patch_shape: {self.num_outputs}x{self.patch_shape}"
 
         message += f")"
         return message
@@ -299,36 +305,38 @@ class DisjointDataGen(BaseDataGen):
         self,
         filenames,
         batch_size,
-        data_patch_size,
-        original_shape,
+        patch_size,
+        data_shape,
         fillna_value=0,
         shuffle=True,
         name=None,
+        transform=None,
     ):
         super().__init__(
             filenames=filenames,
             batch_size=batch_size,
-            original_shape=original_shape,
-            data_patch_size=data_patch_size,
+            data_shape=data_shape,
+            patch_size=patch_size,
             shuffle=shuffle,
             fillna_value=fillna_value,
             name=name,
+            transform=transform,
         )
 
         self.num_outputs = 2
-        if len(original_shape) == 4:
-            self.padder = padder.Padder2D(data_patch_size, original_shape)
-        elif len(original_shape) == 5:
-            self.padder = padder.Padder3D(data_patch_size, original_shape)
+        if len(data_shape) == 4:
+            self.padder = padder.Padder2D(patch_size, data_shape)
+        elif len(data_shape) == 5:
+            self.padder = padder.Padder3D(patch_size, data_shape)
         else:
             raise ValueError("data shape must be of length 4 or 5.")
 
         self.on_epoch_end()
 
         self.num_time_slices = self.ds.shape[0]
-        self.num_patch_per_time_slice = (
-            self.padder.padded_shape[1] // data_patch_size
-        ) * (self.padder.padded_shape[2] // data_patch_size)
+        self.num_patch_per_time_slice = (self.padder.padded_shape[1] // patch_size) * (
+            self.padder.padded_shape[2] // patch_size
+        )
         self.num_patches = self.ds.shape[0] * self.num_patch_per_time_slice
 
         num_batches = self.num_patches / batch_size
@@ -366,7 +374,13 @@ class DisjointDataGen(BaseDataGen):
             da = self.padder.pad_data(da)
             self.da = self.padder.split_data(da)
         da_idx = index % self.num_patch_per_time_slice
-        return self.da[da_idx], self.mask[da_idx]
+
+        sample = self.da[da_idx]
+        mask = self.mask[da_idx]
+        if self.transform:
+            sample = self.transform(sample)
+            mask = self.transform(mask)
+        return sample, mask
 
 
 class OverlappingDataGen(BaseDataGen):
@@ -378,21 +392,23 @@ class OverlappingDataGen(BaseDataGen):
         kernel_size,
         stride,
         batch_size,
-        data_patch_size,
-        original_shape,
+        patch_size,
+        data_shape,
         padding=True,
         fillna_value=0,
         shuffle=True,
         name=None,
+        transform=None,
     ):
         super().__init__(
             filenames=filenames,
             batch_size=batch_size,
-            original_shape=original_shape,
-            data_patch_size=data_patch_size,
+            data_shape=data_shape,
+            patch_size=patch_size,
             shuffle=shuffle,
             fillna_value=fillna_value,
             name=name,
+            transform=transform,
         )
 
         self.num_outputs = 2
@@ -402,8 +418,8 @@ class OverlappingDataGen(BaseDataGen):
         self.sliding_window = sw.SlidingWindow(
             self.kernel_size, self.stride, padding=padding
         )
-        self.coors = self.sliding_window.get_window_coors(original_shape)
-        num_windows = self.sliding_window.get_total_num_windows(original_shape[1:-1])
+        self.coors = self.sliding_window.get_window_coors(data_shape)
+        num_windows = self.sliding_window.get_total_num_windows(data_shape[1:-1])
         self.on_epoch_end()
 
         # Elliminate the windows that only contains masked values
@@ -462,7 +478,9 @@ class OverlappingDataGen(BaseDataGen):
         window_mask = self.sliding_window.get_window_with_coordinate(
             self.mask, self.coors[window_idx]
         )
-
+        if self.transform:
+            window = self.transform(window)
+            window_mask = self.transform(window_mask)
         return window, window_mask
 
 
@@ -473,36 +491,38 @@ class CompressionDataGen(BaseDataGen):
         self,
         filenames,
         batch_size,
-        data_patch_size,
-        original_shape,
+        patch_size,
+        data_shape,
         fillna_value=0,
         shuffle=True,
         name=None,
+        transform=None,
     ):
         super().__init__(
             filenames=filenames,
             batch_size=batch_size,
-            original_shape=original_shape,
-            data_patch_size=data_patch_size,
+            data_shape=data_shape,
+            patch_size=patch_size,
             shuffle=shuffle,
             fillna_value=fillna_value,
             name=name,
+            transform=transform,
         )
 
         self.num_outputs = 1
-        if len(original_shape) == 4:
-            self.padder = padder.Padder2D(data_patch_size, original_shape)
-        elif len(original_shape) == 5:
-            self.padder = padder.Padder3D(data_patch_size, original_shape)
+        if len(data_shape) == 4:
+            self.padder = padder.Padder2D(patch_size, data_shape)
+        elif len(data_shape) == 5:
+            self.padder = padder.Padder3D(patch_size, data_shape)
         else:
             raise ValueError("data shape must be of length 4 or 5.")
 
         self.on_epoch_end()
 
         self.num_time_slices = self.ds.shape[0]
-        self.num_patch_per_time_slice = (
-            self.padder.padded_shape[1] // data_patch_size
-        ) * (self.padder.padded_shape[2] // data_patch_size)
+        self.num_patch_per_time_slice = (self.padder.padded_shape[1] // patch_size) * (
+            self.padder.padded_shape[2] // patch_size
+        )
         self.num_patches = self.ds.shape[0] * self.num_patch_per_time_slice
 
         num_batches = self.num_patches / batch_size
@@ -540,4 +560,7 @@ class CompressionDataGen(BaseDataGen):
             da = self.padder.pad_data(da)
             self.da = self.padder.split_data(da)
         da_idx = index % self.num_patch_per_time_slice
-        return self.da[da_idx]
+        sample = self.da[da_idx]
+        if self.transform:
+            sample = self.transform(sample)
+        return sample

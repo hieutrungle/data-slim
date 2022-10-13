@@ -33,25 +33,35 @@ class VQCPVAE(basemodel.BaseModel):
 
     def __init__(
         self,
-        in_shape,
+        patch_size,
+        patch_depth,
+        patch_channels,
         pre_num_channels,
         num_channels,
         latent_dim,
         num_embeddings,
-        num_residual_layers,
-        commitment_cost=0.25,
-        decay=0,
+        num_residual_blocks,
+        num_transformer_blocks,
+        num_heads,
+        dropout,
+        ema_decay,
+        commitment_cost,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
-        data_channels = in_shape[1]  # in_shape = (B, C, H, W)
+        if patch_depth <= 0:
+            self.input_shape = [1, patch_channels, patch_size, patch_size]
+        else:
+            self.input_shape = [1, patch_channels, patch_size, patch_size, patch_size]
+
+        data_channels = self.input_shape[1]  # in_shape = (B, C, H, W)
         embedding_dim = latent_dim
         self.pre_num_channels = pre_num_channels
         self.num_channels = num_channels
         self.latent_dim = latent_dim
         self.num_embeddings = num_embeddings
-        self.num_residual_layers = num_residual_layers
+        self.num_residual_blocks = num_residual_blocks
         self.vq_weight = 1.0
 
         self.data_preprocessor = preprocessors.IdentityDataProcessor()
@@ -60,13 +70,13 @@ class VQCPVAE(basemodel.BaseModel):
             pre_num_channels,
             num_channels,
             latent_dim,
-            num_residual_layers,
+            num_residual_blocks,
             name="Encoder",
         )
 
-        if decay > 0.0:
+        if ema_decay > 0.0:
             self.vq_layer = vector_quantizer.VectorQuantizerEMA(
-                num_embeddings, embedding_dim, commitment_cost, decay
+                num_embeddings, embedding_dim, commitment_cost, ema_decay
             )
         else:
             self.vq_layer = vector_quantizer.VectorQuantizer(
@@ -78,7 +88,7 @@ class VQCPVAE(basemodel.BaseModel):
             pre_num_channels,
             num_channels,
             latent_dim,
-            num_residual_layers,
+            num_residual_blocks,
             name="Decoder",
         )
         print(f"Initialization of {self.name} completed!")
@@ -146,7 +156,7 @@ if __name__ == "__main__":
     num_channels = 96
     latent_dim = 128
     num_embeddings = 256
-    num_residual_layers = 3
+    num_residual_blocks = 3
     in_shape = (1, 1, 128, 128)
     x = torch.normal(0, 1, in_shape)
     model = VQCPVAE(
@@ -155,7 +165,7 @@ if __name__ == "__main__":
         num_channels,
         latent_dim,
         num_embeddings,
-        num_residual_layers,
+        num_residual_blocks,
         commitment_cost=0.25,
         decay=0.99,
         name=None,
