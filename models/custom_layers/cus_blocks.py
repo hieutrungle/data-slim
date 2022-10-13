@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from . import cus_layers
 
 try:
@@ -235,6 +234,10 @@ class ForwardMLP(nn.Module):
 
 
 class TransformerEncodingBlock(nn.Module):
+    """
+    Transformer Encoding block for text processing
+    """
+
     def __init__(self, embed_dim, num_heads, dropout=0, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = name
@@ -259,16 +262,7 @@ class TransformerEncodingBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, q, k, v, mask=None):
-        # (batch_size, target_seq_len, embed_dim)
         x = q
-        # print("\n\n")
-        # print(f"q: {q.type()}")
-        # print(f"k: {k.type()}")
-        # print(f"v: {v.type()}")
-        # print(f"x shape: {x.shape}")
-        # if mask is not None:
-        #     print(f"mask: {mask.type()}")
-        # print("\n\n")
         attn_out, _ = self.multihead_attention(x, x, x)
         x = x + self.dropout(attn_out)
         x = self.layernorm_0(x)
@@ -296,6 +290,11 @@ def scaled_dot_product(q, k, v, mask=None, dropout_module=None):
 
 
 class MultiheadAttention(nn.Module):
+    """
+    Multihead Attention module from "Attention is All You Need"
+    This attention is for text processing, not for image processing.
+    """
+
     def __init__(
         self, embed_dim, num_heads, dropout=0.0, bias=True, name=None, **kwargs
     ):
@@ -360,34 +359,9 @@ class MultiheadAttention(nn.Module):
             return output
 
 
-# TODO: check this attention
-
-
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
-
-
-def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
-    if dims == 1:
-        return nn.Conv1d(*args, **kwargs)
-    elif dims == 2:
-        return nn.Conv2d(*args, **kwargs)
-    elif dims == 3:
-        return nn.Conv3d(*args, **kwargs)
-    raise ValueError(f"unsupported dimensions: {dims}")
-
-
-def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
 
 
 def normalization(channels):
@@ -400,81 +374,36 @@ def normalization(channels):
     return GroupNorm32(32, channels)
 
 
-def checkpoint(func, inputs, params, flag):
-    """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
-
-    :param func: the function to evaluate.
-    :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
-    :param flag: if False, disable gradient checkpointing.
-    """
-    if flag:
-        args = tuple(inputs) + tuple(params)
-        return CheckpointFunction.apply(func, len(inputs), *args)
-    else:
-        return func(*inputs)
-
-
-class CheckpointFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, run_function, length, *args):
-        ctx.run_function = run_function
-        ctx.input_tensors = list(args[:length])
-        ctx.input_params = list(args[length:])
-        with torch.no_grad():
-            output_tensors = ctx.run_function(*ctx.input_tensors)
-        return output_tensors
-
-    @staticmethod
-    def backward(ctx, *output_grads):
-        ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
-        with torch.enable_grad():
-            # Fixes a bug where the first op in run_function modifies the
-            # Tensor storage in place, which is not allowed for detach()'d
-            # Tensors.
-            shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
-            output_tensors = ctx.run_function(*shallow_copies)
-        input_grads = torch.autograd.grad(
-            output_tensors,
-            ctx.input_tensors + ctx.input_params,
-            output_grads,
-            allow_unused=True,
-        )
-        del ctx.input_tensors
-        del ctx.input_params
-        del output_tensors
-        return (None, None) + input_grads
-
-
 class AttentionBlock(nn.Module):
     """
+    Attention for high dimensional data, such as images, 3D data, etc.
     An attention block that allows spatial positions to attend to each other.
 
     Originally ported from here, but adapted to the N-d case.
     https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
     """
 
-    def __init__(self, channels, num_heads=1, use_checkpoint=False):
+    def __init__(self, channels, num_heads=1):
         super().__init__()
         self.channels = channels
         self.num_heads = num_heads
-        self.use_checkpoint = use_checkpoint
 
         self.norm = normalization(channels)
-        self.qkv = conv_nd(1, channels, channels * 3, 1)
+        self.qkv = cus_layers.Conv1dSame(
+            channels, channels * 3, kernel_size=channels // 4, stride=1
+        )
         self.attention = QKVAttention()
-        self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
+        self.proj_out = cus_layers.Conv1dSame(
+            channels, channels, kernel_size=5, stride=1
+        )
 
     def forward(self, x):
-        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
-
-    def _forward(self, x):
         b, c, *spatial = x.shape
+        # [B, C, H*W]
         x = x.reshape(b, c, -1)
+        # [B, 3C, H*W]
         qkv = self.qkv(self.norm(x))
+        # [B, 3C, H*W] -> [B*num_head, 3C/num_head, H*W]
         qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2])
         h = self.attention(qkv)
         h = h.reshape(b, -1, h.shape[-1])
@@ -494,9 +423,10 @@ class QKVAttention(nn.Module):
         :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x C x T] tensor after attention.
         """
-        ch = qkv.shape[1] // 3
+        ch = torch.div(qkv.shape[1], 3, rounding_mode="floor")
+        # ch = qkv.shape[1] // 3
         q, k, v = torch.split(qkv, ch, dim=1)
-        scale = 1 / math.sqrt(math.sqrt(ch))
+        scale = 1 / torch.sqrt(torch.sqrt(ch))
         weight = torch.einsum(
             "bct,bcs->bts", q * scale, k * scale
         )  # More stable with f16 than dividing afterwards
@@ -525,3 +455,45 @@ class QKVAttention(nn.Module):
         # the combination of the value vectors.
         matmul_ops = 2 * b * (num_spatial**2) * c
         model.total_ops += torch.DoubleTensor([matmul_ops])
+
+
+class AttentionEncodingBlock(nn.Module):
+    """
+    Attention for high dimensional data, such as images, 3D data, etc.
+    Attention + Conv1D
+    """
+
+    def __init__(self, channels, num_heads, dropout=0, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self.num_heads = num_heads
+        self.dropout = dropout
+
+        self.multihead_attention = AttentionBlock(
+            channels=channels,
+            num_heads=num_heads,
+        )
+        self.ffn = nn.Sequential(
+            nn.Linear(channels, channels * 2),
+            # cus_layers.Conv2dSame(channels, channels * 2, kernel_size=5, stride=1),
+            nn.GELU(),
+            # cus_layers.Conv2dSame(channels * 2, channels, kernel_size=5, stride=1),
+            nn.Linear(channels * 2, channels),
+        )
+
+        self.norm = normalization(channels)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # (B, C, H, W)
+        x = self.multihead_attention(x)
+        # (B, C, H, W)
+        linear_out = torch.permute(x, (0, 2, 3, 1))
+        linear_out = self.ffn(linear_out)
+        linear_out = torch.permute(linear_out, (0, 3, 1, 2))
+
+        x = x + self.dropout(linear_out)
+        # (B, C, H, W)
+        x = self.norm(x)
+
+        return x

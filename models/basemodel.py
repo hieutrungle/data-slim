@@ -1,7 +1,4 @@
 import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
-
 import torch
 import torch.nn as nn
 import abc
@@ -11,6 +8,9 @@ try:
     from custom_layers import cus_blocks, cus_layers
 except:
     from .custom_layers import cus_blocks, cus_layers
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 
 class BaseModel(nn.Module):
@@ -187,22 +187,48 @@ class Decoder(BaseModel):
 
 
 class TransformerEncoder(BaseModel):
+    """
+    Transformer Encoder for text processing
+    """
+
     def __init__(
-        self, embed_dim, num_heads, num_layers, dropout=0, name=None, **kwargs
+        self, embed_dim, num_heads, num_blocks, dropout=0, name=None, **kwargs
     ):
         super().__init__(name=name, **kwargs)
         self.name = name
-        self.num_layers = num_layers
+        self.num_blocks = num_blocks
 
         self._layers = nn.ModuleList()
-        for _ in range(self.num_layers):
+        for _ in range(self.num_blocks):
             self._layers.append(
                 cus_blocks.TransformerEncodingBlock(embed_dim, num_heads, dropout)
             )
 
     def forward(self, x, mask=None):
-        for i in range(self.num_layers):
+        for i in range(self.num_blocks):
             x = self._layers[i](x, x, x, mask)
+        return x
+
+
+class AttentionEncoder(BaseModel):
+    """
+    Attention Stack for image or high-dimensional data (e.g 3D) processing
+    """
+
+    def __init__(self, channels, num_heads, num_blocks, dropout=0, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.name = name
+        self.num_blocks = num_blocks
+
+        self._layers = nn.ModuleList()
+        for _ in range(self.num_blocks):
+            self._layers.append(
+                cus_blocks.AttentionEncodingBlock(channels, num_heads, dropout)
+            )
+
+    def forward(self, x):
+        for i in range(self.num_blocks):
+            x = self._layers[i](x)
         return x
 
 
@@ -211,26 +237,46 @@ class Indentity(BaseModel):
         super().__init__(**kwargs)
         self.name = name
 
-    def forward(self, x, mask=None):
+    def forward(self, x):
         return x
 
 
 if __name__ == "__main__":
-    in_channels = 1
-    pre_num_channels = post_num_channels = 32
-    num_channels = 96
+    patch_size = 64
+    patch_depth = -1  # -1 means no depth
+    patch_channels = 1
+    pre_num_channels = 8
+    num_channels = 32
+    latent_dim = 64
+    num_embeddings = 128
     num_residual_blocks = 3
-    latent_dim = 128
-    input_size = (1, 1, 128, 128)
-    x = torch.normal(0, 1, input_size)
+    num_transformer_blocks = 2
+    num_heads = 4
+    dropout = 0.0
+    ema_decay = 0.99
+    commitment_cost = 0.25
+    name = "Compressor"
+    post_num_channels = pre_num_channels
+    input_size = (1, 1, 64, 64)
+    x = torch.normal(0, 1, input_size).to(DEVICE)
     model = Encoder(
-        in_channels, pre_num_channels, num_channels, latent_dim, num_residual_blocks
-    )
-    summary(model, x.shape, col_width=30, depth=3, verbose=1)
+        patch_channels, pre_num_channels, num_channels, latent_dim, num_residual_blocks
+    ).to(DEVICE)
+    summary(model, x.shape, depth=3, verbose=1)
     y = model(x)
 
-    model = Decoder(
-        in_channels, post_num_channels, num_channels, latent_dim, num_residual_blocks
-    )
+    # model = Decoder(
+    #     in_channels, post_num_channels, num_channels, latent_dim, num_residual_blocks
+    # )
+    # print()
+    # summary(model, y.shape, depth=3, verbose=1)
+
+    # model = cus_blocks.AttentionBlock(latent_dim, num_heads)
+    # print()
+    # summary(model, y.shape, depth=3, verbose=1)
+    # z = model(y)
+
+    model = AttentionEncoder(latent_dim, num_heads, num_transformer_blocks)
     print()
-    summary(model, y.shape, col_width=30, depth=3, verbose=1)
+    summary(model, y.shape, depth=5, verbose=1)
+    z = model(y)

@@ -21,7 +21,9 @@ NUM_GPUS = len(AVAILABLE_GPUS)
 
 
 class Compressor(pl.LightningModule):
-    def __init__(self, model, lr, warmup, max_iters, weight_decay, resume_checkpoint):
+    def __init__(
+        self, model, lr, warmup, max_iters, weight_decay, resume_checkpoint, **kwargs
+    ):
         """
         Inputs:
             model: model to be trained
@@ -35,7 +37,7 @@ class Compressor(pl.LightningModule):
         # Create model
         self.model = model
         self.vq_weight = 0.5
-        self.mse_weight = 2
+        self.mse_weight = 5
         # Example input for visualizing the graph in Tensorboard
         self.example_input_array = torch.randn(tuple(self.model.input_shape))
 
@@ -57,12 +59,7 @@ class Compressor(pl.LightningModule):
         x_hat = x_hat.type(torch.float32)
         x = x * mask
         x_hat = x_hat * mask
-
-        if len(self.hparams.resume_checkpoint) > 0:
-            mse_loss = F.mse_loss(x, x_hat)
-        else:
-            mse_loss = F.mse_loss(x, x_hat, reduction="none")
-            mse_loss = mse_loss.sum(dim=[1, 2, 3]).mean()
+        mse_loss = F.mse_loss(x, x_hat)
         return mse_loss, quantized_loss
 
     def configure_optimizers(self):
@@ -93,11 +90,15 @@ class Compressor(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss = self._get_loss(batch)
         loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+
         self.log("mse_loss", mse_loss, prog_bar=True)
         self.log("quantized_loss", quantized_loss, prog_bar=True)
         self.log("train_loss", loss, on_epoch=True)
-        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         self.log("lr", cur_lr, prog_bar=True, on_step=True)
+        self.log("hp/train_loss", loss)
+        self.log("hp/train_mse", mse_loss)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -105,7 +106,9 @@ class Compressor(pl.LightningModule):
         loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
         self.log("val_mse_loss", mse_loss)
         self.log("val_quantized_loss", quantized_loss)
-        self.log("val_loss", loss)
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("hp/val_loss", loss)
+        self.log("hp/val_mse", mse_loss)
 
     def test_step(self, batch, batch_idx):
         mse_loss, quantized_loss = self._get_loss(batch)
@@ -120,8 +123,11 @@ class Compressor(pl.LightningModule):
     def decompress(self, x):
         return self.model.decompress(x)
 
-    def get_model(self):
-        return self.model
+    def on_train_start(self):
+        self.logger.log_hyperparams(
+            self.hparams,
+            {"hp/train_loss": 0, "hp/train_mse": 0, "hp/val_loss": 0, "hp/val_mse": 0},
+        )
 
 
 def train(
@@ -137,6 +143,7 @@ def train(
     resume_checkpoint,
     test_ds=None,
     train_verbose=False,
+    args=None,
 ):
     """train the model"""
     compressor_args = dict(
@@ -159,20 +166,20 @@ def train(
         weight_filename = "sst-{epoch:03d}-{train_loss:.2f}"
         version = "pretrain"
     summaries_dir, checkpoints_dir = utils.mkdir_storage(model_path, resume_checkpoint)
-    _callbacks = get_callbacks(checkpoints_dir, weight_filename)
+    _callbacks = get_callbacks(checkpoints_dir, weight_filename, train_verbose)
 
     logger.log(f"\nStart Training...")
     start_total_time = time.perf_counter()
     tfboard_logger = pl.loggers.tensorboard.TensorBoardLogger(
-        summaries_dir, name="", version=version, log_graph=True
+        summaries_dir, name="", version=version, log_graph=True, default_hp_metric=False
     )
     trainer = pl.Trainer(
-        fast_dev_run=False,
+        fast_dev_run=True,
         default_root_dir=os.path.join(checkpoints_dir),
         accelerator="gpu",
         devices=NUM_GPUS,
         max_epochs=epochs,
-        log_every_n_steps=100,
+        log_every_n_steps=50,
         logger=tfboard_logger,
         callbacks=_callbacks,
         limit_val_batches=0.1,
@@ -182,6 +189,7 @@ def train(
     lightning_model = Compressor(
         model=model,
         **compressor_args,
+        **utils.args_to_dict(args, utils.model_defaults().keys()),
     )
     trainer.fit(lightning_model, train_ds, test_ds)
     total_training_time = time.perf_counter() - start_total_time
@@ -200,7 +208,9 @@ def train(
     return model
 
 
-def get_callbacks(checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}"):
+def get_callbacks(
+    checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
+):
     callbacks = [
         EarlyStopping("train_loss", patience=15, mode="min"),
         ModelCheckpoint(
@@ -212,6 +222,7 @@ def get_callbacks(checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}
             save_weights_only=True,
         ),
         LearningRateMonitor("step"),
-        TQDMProgressBar(refresh_rate=50),
     ]
+    if verbose:
+        callbacks.append(TQDMProgressBar(refresh_rate=50))
     return callbacks

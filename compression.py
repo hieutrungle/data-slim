@@ -1,21 +1,13 @@
 import sys
 import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
-
-import tensorflow as tf
 import tensorflow_compression as tfc
 import utils.utils as utils
 import numpy as np
 import os
 import json
 import copy
-import keras.backend as K
 import gc
 import time
-import utils.straight_through_pixels as straight_through_pixels
-import matplotlib.pyplot as plt
-from matplotlib import figure
 import logging
 from utils import utils
 

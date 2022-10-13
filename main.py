@@ -61,7 +61,7 @@ def main():
 
         if args.verbose:
             logger.log(
-                summary(model, model.input_shape, col_width=25, depth=3, verbose=1)
+                summary(model, model.input_shape, col_width=30, depth=6, verbose=1)
             )
 
         model = train.train(
@@ -71,7 +71,11 @@ def main():
             test_ds=test_ds,
             resume_checkpoint=resume_checkpoint,
             **utils.args_to_dict(args, utils.train_defaults().keys()),
+            args=args,
         )
+    # Need path to model weights.
+    # Need to initilize correct model w.r.t. the weights.
+    # Input file.
     elif args.command == "compress":
         pass
     elif args.command == "decompress":
