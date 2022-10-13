@@ -1,7 +1,7 @@
 *cache*
 *temp*
 data/*/
-./logs*
+logs/*
 data/*.zip
 data/*.csv
 data/*.bat
