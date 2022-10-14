@@ -126,7 +126,7 @@ class Compressor(pl.LightningModule):
     def on_train_start(self):
         self.logger.log_hyperparams(
             self.hparams,
-            {"hp/train_loss": 0, "hp/train_mse": 0, "hp/val_loss": 0, "hp/val_mse": 0},
+            {"hp/train_loss": 1, "hp/train_mse": 1, "hp/val_loss": 1, "hp/val_mse": 1},
         )
 
 
