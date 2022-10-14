@@ -206,6 +206,7 @@ def train(
     return model
 
 
+# TODO: add callback to plot a validation image (1st time slice) to tensorboard
 def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):
@@ -224,3 +225,11 @@ def get_callbacks(
     if verbose:
         callbacks.append(TQDMProgressBar(refresh_rate=25_000))
     return callbacks
+
+
+def get_single_slice_test_ds(test_ds, slice_idx=0):
+    """Get a single slice from the test dataset"""
+    test_ds = test_ds.map(lambda x: x[slice_idx])
+    test_ds = test_ds.map(lambda x: x[None, ...])
+    test_ds = test_ds.map(lambda x: x.to(DEVICE))
+    return test_ds

@@ -390,7 +390,7 @@ class AttentionBlock(nn.Module):
 
         self.norm = normalization(channels)
         self.qkv = cus_layers.Conv1dSame(
-            channels, channels * 3, kernel_size=channels // 4, stride=1
+            channels, channels * 3, kernel_size=channels // 16, stride=1
         )
         self.attention = QKVAttention()
         self.proj_out = cus_layers.Conv1dSame(
