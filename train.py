@@ -160,11 +160,11 @@ def train(
         start_epoch = resume_checkpoint["resume_epoch"]
         weight_filename = (
             f"resume_start_{start_epoch}_"
-            + "sst-{epoch:03d}-{mse_loss:.5f}-{train_loss:.5f}"
+            + "sst-{epoch:03d}-{val_mse_loss:.5f}-{val_loss:.5f}"
         )
         version = "resume"
     else:
-        weight_filename = "sst-{epoch:03d}-{mse_loss:.5f}-{train_loss:.5f}"
+        weight_filename = "sst-{epoch:03d}-{val_mse_loss:.5f}-{val_loss:.5f}"
         version = "pretrain"
     summaries_dir, checkpoints_dir = utils.mkdir_storage(model_path, resume_checkpoint)
     _callbacks = get_callbacks(checkpoints_dir, weight_filename, train_verbose)
@@ -213,10 +213,10 @@ def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):
     callbacks = [
-        EarlyStopping("train_loss", patience=10, mode="min"),
+        EarlyStopping("val_loss", patience=10, mode="min"),
         ModelCheckpoint(
             save_top_k=3,
-            monitor="train_loss",
+            monitor="val_loss",
             mode="min",
             dirpath=checkpoints_dir,
             filename=weight_filename,
