@@ -60,6 +60,7 @@ def main():
                 resume_checkpoint = {}
 
         if args.verbose:
+            dataio.log_training_parameters()
             logger.log(
                 summary(model, model.input_shape, col_width=30, depth=4, verbose=1)
             )
@@ -72,6 +73,7 @@ def main():
             resume_checkpoint=resume_checkpoint,
             **utils.args_to_dict(args, utils.train_defaults().keys()),
             args=args,
+            dataio=dataio,
         )
     # Need path to model weights.
     # Need to initilize correct model w.r.t. the weights.

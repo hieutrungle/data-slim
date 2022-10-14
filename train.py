@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 import os
 import sys
-from utils import utils, scheduler, logger
+from utils import utils, scheduler, logger, custom_callbacks
 import gc
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -144,6 +144,7 @@ def train(
     test_ds=None,
     train_verbose=False,
     args=None,
+    dataio=None,
 ):
     """train the model"""
     compressor_args = dict(
@@ -153,6 +154,8 @@ def train(
         weight_decay=weight_decay,
         resume_checkpoint=resume_checkpoint,
     )
+
+    (image, mask) = get_single_slice_test_ds(test_ds, dataio)
 
     # Save training parameters if we need to resume training in the future
     start_epoch = 0
@@ -165,6 +168,7 @@ def train(
         version = "pretrain"
     summaries_dir, checkpoints_dir = utils.mkdir_storage(model_path, resume_checkpoint)
     _callbacks = get_callbacks(checkpoints_dir, weight_filename, train_verbose)
+    _callbacks.append(custom_callbacks.GenerateCallback(image, mask, dataio))
 
     logger.log(f"\nStart Training...")
     start_total_time = time.perf_counter()
@@ -181,6 +185,8 @@ def train(
         logger=tfboard_logger,
         callbacks=_callbacks,
         limit_val_batches=0.1,
+        # limit_train_batches=0.01,
+        # limit_test_batches=0.01,
         gradient_clip_algorithm="norm",
         enable_progress_bar=train_verbose,
     )
@@ -191,10 +197,16 @@ def train(
     )
     trainer.fit(lightning_model, train_ds, test_ds)
     total_training_time = time.perf_counter() - start_total_time
-    logger.info(f"Training time: {total_training_time:0.2f} seconds")
+    logger.log(f"Training time: {total_training_time:0.2f} seconds")
+
     # Test best model on validation and test set
+    logger.log(f"Loading best model from {_callbacks[1].best_model_path}")
+    lightning_model = Compressor.load_from_checkpoint(
+        _callbacks[1].best_model_path, model=model
+    )
     test_result = trainer.test(lightning_model, test_ds, verbose=train_verbose)
     logger.log(f"\n{test_result}\n")
+
     for i, (path, _) in enumerate(trainer.checkpoint_callback.best_k_models.items()):
         m = Compressor.load_from_checkpoint(path, model=model)
         torch.save(m.model.state_dict(), path.rpartition(".")[0] + ".pt")
@@ -223,13 +235,17 @@ def get_callbacks(
         LearningRateMonitor("step"),
     ]
     if verbose:
-        callbacks.append(TQDMProgressBar(refresh_rate=25_000))
+        callbacks.append(TQDMProgressBar(refresh_rate=100))
     return callbacks
 
 
-def get_single_slice_test_ds(test_ds, slice_idx=0):
+def get_single_slice_test_ds(test_ds, dataio):
     """Get a single slice from the test dataset"""
-    test_ds = test_ds.map(lambda x: x[slice_idx])
-    test_ds = test_ds.map(lambda x: x[None, ...])
-    test_ds = test_ds.map(lambda x: x.to(DEVICE))
-    return test_ds
+    num_batch_per_time_slice = dataio.params["test.num_batch_per_time_slice"]
+    image, mask = [], []
+    for i, (da, tile_mask) in enumerate(test_ds):
+        image.append(da.type(torch.float))
+        mask.append(tile_mask.type(torch.float))
+        if i >= num_batch_per_time_slice:
+            break
+    return image, mask

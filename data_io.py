@@ -38,6 +38,7 @@ class Dataio:
                 transforms.ToTensor(),
             ]
         )
+        self.padder = None
 
     def get_train_test_data_loader(self, data_dir, local_test=False):
         filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
@@ -68,7 +69,6 @@ class Dataio:
             test_dataset,
             num_workers=4 * NUM_GPUS,
         )
-        self.log_training_parameters()
         return train_ds, test_ds
 
     def get_num_batch_per_time_slice(self):
@@ -95,6 +95,7 @@ class Dataio:
             name=name,
             transform=self.transform,
         )
+        self.padder = data_gen.padder
         self._update_parameters(data_gen, name=name)
         return data_gen
 
@@ -129,6 +130,7 @@ class Dataio:
             name=name,
             transform=self.transform,
         )
+        self.padder = data_gen.padder
         self._update_parameters(data_gen, name=name)
         return data_gen
 
@@ -179,18 +181,16 @@ class Dataio:
         self._check_generator_type(data_gen)
         return data_gen.mask
 
-    def partition_data(self, ds, data_gen):
+    def partition_data(self, ds):
         """Partition ds to multiple tiles"""
-        self._check_generator_type(data_gen)
-        ds = data_gen.padder.pad_data(ds)
-        ds = data_gen.padder.split_data(ds)
+        ds = self.padder.pad_data(ds)
+        ds = self.padder.split_data(ds)
         return ds
 
-    def revert_partition(self, ds, data_gen):
+    def revert_partition(self, ds):
         """Revert partitioned data to original shape"""
-        self._check_generator_type(data_gen)
-        ds = data_gen.padder.unsplit_data(ds)
-        ds = data_gen.padder.remove_pad_data(ds)
+        ds = self.padder.unsplit_data(ds)
+        ds = self.padder.remove_pad_data(ds)
         return ds
 
     def _check_generator_type(self, data_gen):
