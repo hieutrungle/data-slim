@@ -256,7 +256,7 @@ def train_defaults():
         lr=4e-4,
         warm_up_portion=0.15,
         weight_decay=1e-4,  # optimizer
-        log_interval=10,
+        log_interval=500,
         save_interval=10,
         train_verbose=False,
     )

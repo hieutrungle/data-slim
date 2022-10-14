@@ -179,7 +179,7 @@ def train(
         accelerator="gpu",
         devices=NUM_GPUS,
         max_epochs=epochs,
-        log_every_n_steps=500,
+        log_every_n_steps=log_interval,
         logger=tfboard_logger,
         callbacks=_callbacks,
         limit_val_batches=0.1,
