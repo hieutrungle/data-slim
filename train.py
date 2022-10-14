@@ -224,5 +224,5 @@ def get_callbacks(
         LearningRateMonitor("step"),
     ]
     if verbose:
-        callbacks.append(TQDMProgressBar(refresh_rate=50))
+        callbacks.append(TQDMProgressBar(refresh_rate=25_000))
     return callbacks
