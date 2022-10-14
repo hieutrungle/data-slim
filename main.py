@@ -61,7 +61,7 @@ def main():
 
         if args.verbose:
             logger.log(
-                summary(model, model.input_shape, col_width=30, depth=6, verbose=1)
+                summary(model, model.input_shape, col_width=30, depth=4, verbose=1)
             )
 
         model = train.train(
