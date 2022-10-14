@@ -196,7 +196,7 @@ def train(
     logger.info(f"Training time: {total_training_time:0.2f} seconds")
     # Test best model on validation and test set
     test_result = trainer.test(lightning_model, test_ds, verbose=train_verbose)
-
+    logger.log(f"\n{test_result}\n")
     for i, (path, _) in enumerate(trainer.checkpoint_callback.best_k_models.items()):
         m = Compressor.load_from_checkpoint(path, model=model)
         torch.save(m.model.state_dict(), path.rpartition(".")[0] + ".pt")
