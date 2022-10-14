@@ -218,7 +218,6 @@ def train(
     return model
 
 
-# TODO: add callback to plot a validation image (1st time slice) to tensorboard
 def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):

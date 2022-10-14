@@ -7,6 +7,7 @@ import data_io
 from models import res_conv2d_attn
 import train
 from utils import logger, utils
+import time
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -21,6 +22,7 @@ def main():
     if args.command == "train":
 
         # Get data.
+        start_time = time.perf_counter()
         dataio = data_io.Dataio(
             args.batch_size,
             args.patch_size,
@@ -30,8 +32,10 @@ def main():
             args.data_dir,
             local_test=args.local_test,
         )
+        logger.log(f"I/O time: {time.perf_counter() - start_time:0.4f} seconds")
 
         # Model
+        start_time = time.perf_counter()
         model = res_conv2d_attn.VQCPVAE(
             **utils.args_to_dict(args, utils.model_defaults().keys())
         )
@@ -43,6 +47,9 @@ def main():
         except Exception as e:
             logger.log("No statistics file available. Cannot use Stadardization.")
             logger.error(e)
+        logger.log(
+            f"Model initialization time: {time.perf_counter() - start_time:0.4f} seconds"
+        )
 
         # Resume parameters.
         resume_checkpoint = {}
