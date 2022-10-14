@@ -55,3 +55,4 @@ torchvision
 torchaudio
 scipy
 scikit-image
+seaborn
