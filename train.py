@@ -223,7 +223,7 @@ def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):
     callbacks = [
-        EarlyStopping("val_loss", patience=10, mode="min"),
+        EarlyStopping("val_loss", patience=6, mode="min"),
         ModelCheckpoint(
             save_top_k=3,
             monitor="val_loss",
