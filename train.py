@@ -174,7 +174,7 @@ def train(
         summaries_dir, name="", version=version, log_graph=True, default_hp_metric=False
     )
     trainer = pl.Trainer(
-        fast_dev_run=True,
+        fast_dev_run=False,
         default_root_dir=os.path.join(checkpoints_dir),
         accelerator="gpu",
         devices=NUM_GPUS,
