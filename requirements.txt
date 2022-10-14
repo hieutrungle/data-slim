@@ -56,3 +56,5 @@ torchaudio
 scipy
 scikit-image
 seaborn
+black
+pep8
