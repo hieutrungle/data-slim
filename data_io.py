@@ -138,7 +138,7 @@ class Dataio:
         drop_last=False,
         shuffle=False,
         num_workers=4,
-        prefetch_factor=4,
+        prefetch_factor=6,
         pin_memory=False,
     ):
         self._check_generator_type(data_gen)
