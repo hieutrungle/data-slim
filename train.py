@@ -163,7 +163,7 @@ def train(
         )
         version = "resume"
     else:
-        weight_filename = "sst-{epoch:03d}-{train_loss:.2f}"
+        weight_filename = "sst-{epoch:03d}-{train_loss:.5f}"
         version = "pretrain"
     summaries_dir, checkpoints_dir = utils.mkdir_storage(model_path, resume_checkpoint)
     _callbacks = get_callbacks(checkpoints_dir, weight_filename, train_verbose)
