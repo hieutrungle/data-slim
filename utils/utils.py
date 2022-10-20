@@ -26,6 +26,7 @@ def mkdir_if_not_exist(path):
 
 def get_filenames(data_path, prefix=".nc", random_seed=None):
     if data_path.endswith(".nc"):
+        # data_path is a single file
         filenames = [data_path]
     else:
         filenames = sorted(
@@ -38,6 +39,8 @@ def get_filenames(data_path, prefix=".nc", random_seed=None):
 
 def get_data_statistics(data_path):
     if data_path.endswith(".nc"):
+        # data_path is a single file, look into the parent
+        # directory to find the statistics file
         filename = Path(data_path)
         parent_folder = filename.parent.absolute()
         filename = glob.glob(os.path.join(parent_folder, "*.csv"))[0]
@@ -83,10 +86,12 @@ def mkdir_storage(model_dir, resume={}):
     return summaries_dir, checkpoints_dir
 
 
-def save_data_as_fig(data: float, output_path: str, fig_name: str):
+def save_data_as_fig(
+    da: float, da_min: float, da_max: float, output_path: str, fig_name: str
+):
     fig = figure.Figure(figsize=(36, 18))
     ax = fig.subplots(1)
-    ax.imshow(data)
+    ax.imshow(da, vmin=da_min, vmax=da_max, cmap="seismic")
     ax.axis("tight")
     ax.axis("off")
     ax.set_title(f"{fig_name}")
@@ -94,36 +99,34 @@ def save_data_as_fig(data: float, output_path: str, fig_name: str):
     fig.savefig(os.path.join(output_path, fig_name))
 
 
-def plot_save_reconstruct(x, x_hat, model_name, output_path=None):
+def save_reconstruction(x, x_hat, file_name, output_path=None):
     """plot reconstruct and original data"""
 
     if output_path == None:
-        output_path = "./outputs/"
+        output_path = os.path.join("./outputs/", file_name)
     mkdir_if_not_exist(output_path)
 
-    combined_data = np.array(x)
     # Get the min and max of all your data
-    _min, _max = np.amin(combined_data), np.amax(combined_data)
+    _min, _max = np.amin(x), np.amax(x)
 
+    plt.rcParams.update({"font.size": 22})
     fig = figure.Figure(figsize=(36, 12))
     i = 0
     axes = fig.subplots(nrows=1, ncols=2, sharey=True)
-    for image, name in zip([x_hat, x], ["reconstructed", "original"]):
-        im = axes[i].imshow(image, vmin=_min, vmax=_max)
+    for image, name in zip([x, x_hat], ["original", "reconstructed"]):
+        im = axes[i].imshow(image, vmin=_min, vmax=_max, cmap="seismic")
         axes[i].set_adjustable("box")
         axes[i].axis("tight")
         axes[i].axis("off")
         axes[i].set_title(f"{name}")
         axes[i].autoscale(False)
         i += 1
-    fig.colorbar(im, ax=axes, location="bottom", fraction=0.08, pad=0.1, shrink=0.8)
-    fig.suptitle(
-        f"Visualization of the original and reconstructed data of {model_name}"
-    )
-    fig.savefig(os.path.join(output_path, f"{model_name}_comparison.png"))
+    fig.colorbar(im, ax=axes, location="bottom", fraction=0.08, pad=0.1, shrink=0.9)
+    fig.suptitle(f"Visualization of the original and reconstructed data of {file_name}")
+    fig.savefig(os.path.join(output_path, f"{file_name}_comparison.png"))
 
-    save_data_as_fig(x, output_path, f"{model_name}_original.png")
-    save_data_as_fig(x_hat, output_path, f"{model_name}_reconstructed.png")
+    save_data_as_fig(x, _min, _max, output_path, f"{file_name}_original.png")
+    save_data_as_fig(x_hat, _min, _max, output_path, f"{file_name}_reconstructed.png")
     # Clear the current axes.
     plt.cla()
     # Clear the current figure.
@@ -205,10 +208,12 @@ def plot_results(x, x_hat):
 
     diff = x_hat - x
     diff_abs = np.abs(diff)
+    min_value = np.min(diff_abs)
+    max_value = np.max(diff_abs)
 
     fig = plt.figure(figsize=(12, 12))
     axes = fig.subplots(nrows=1, ncols=1, sharey=True)
-    im = plt.imshow(diff_abs, cmap="seismic")
+    im = plt.imshow(diff_abs, vmin=min_value, vmax=max_value, cmap="seismic")
     fig.colorbar(
         im,
         ax=axes,
@@ -381,37 +386,48 @@ def configure_args(args):
         f"-latent_dim_{args.latent_dim}-num_embeddings_{args.num_embeddings}"
         f"-num_residual_blocks_{args.num_residual_blocks}-num_transformer_blocks_{args.num_transformer_blocks}"
     )
-    args.model_path = args.model_path + args.prefix_folder
+    if args.command == "train":
+        args.model_path = args.model_path + args.prefix_folder
     args.name = args.model_path.rpartition("/")[-1]
 
 
-def get_resume_checkpoint(args):
-    resume_checkpoint = {}
+def get_checkpoint(args):
+    checkpoint = {}
     ckpt_files = glob.glob(os.path.join(args.model_path, "checkpoints", "*.pt"))
     weight_path = ""
-    if args.iter == -1:
-        logger.log(f"Resume training using the best model.")
-        # Get the best model path.
-        sorted_ckpt_files = {}
-        for ckpt_file in ckpt_files:
-            sorted_ckpt_files[ckpt_file] = float(
-                ckpt_file.split("-")[-1].split("=")[-1].rpartition(".")[0]
+    if len(ckpt_files) > 0:
+        if args.iter == -1:
+            logger.log(f"Using the best model.")
+            # Get the best model path.
+            sorted_ckpt_files = {}
+            for ckpt_file in ckpt_files:
+                sorted_ckpt_files[ckpt_file] = float(
+                    ckpt_file.split("-")[-1].split("=")[-1].rpartition(".")[0]
+                )
+            sorted_ckpt_files = dict(
+                sorted(sorted_ckpt_files.items(), key=lambda item: item[1])
             )
-        sorted_ckpt_files = dict(
-            sorted(sorted_ckpt_files.items(), key=lambda item: item[1])
-        )
-        best_ckpt = list(sorted_ckpt_files.keys())[0]
-        # get epoch of the best model path.
-        resume_epoch = best_ckpt.split("/")[-1].split("-")[1].split("=")[1]
-        resume_checkpoint["resume_epoch"] = int(resume_epoch)
-        weight_path = best_ckpt
-    elif args.iter > 0:
-        resume_checkpoint["resume_epoch"] = args.iter
-        logger.log(f"Resume training at epoch {resume_checkpoint['resume_epoch']}.")
-        for ckpt_file in ckpt_files:
-            resume_epoch = ckpt_file.split("/")[-1].split("-")[1]
-            if int(resume_epoch.split("=")[1]) == args.iter:
-                weight_path = ckpt_file
-                break
-    resume_checkpoint["weight_path"] = weight_path
-    return resume_checkpoint
+            best_ckpt = list(sorted_ckpt_files.keys())[0]
+            # get epoch of the best model path.
+            resume_epoch = best_ckpt.split("/")[-1].split("-")[1].split("=")[1]
+            checkpoint["resume_epoch"] = int(resume_epoch)
+            weight_path = best_ckpt
+
+        elif args.iter > 0:
+            checkpoint["resume_epoch"] = args.iter
+            logger.log(f"Using model at epoch {checkpoint['resume_epoch']}.")
+            for ckpt_file in ckpt_files:
+                resume_epoch = ckpt_file.split("/")[-1].split("-")[1]
+                if int(resume_epoch.split("=")[1]) == args.iter:
+                    weight_path = ckpt_file
+                    break
+    checkpoint["weight_path"] = weight_path
+    return checkpoint
+
+
+def check_memory(check_name: str):
+    free_mem, used_mem = torch.cuda.mem_get_info()
+    logger.log(
+        f"{check_name}: "
+        f"Free memory: {free_mem / 1024**3} GB; Used memory: {used_mem / 1024**3} GB"
+    )

@@ -1,6 +1,5 @@
 import sys
 import os
-import tensorflow_compression as tfc
 import utils.utils as utils
 import numpy as np
 import os
@@ -9,41 +8,48 @@ import copy
 import gc
 import time
 from utils import utils, logger
+from torch.utils.data import DataLoader
+import torch
+import gzip
+import matplotlib.pyplot as plt
 
-# TODO: convert to pytorch
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+IS_CHECKING_MEMORY = False
+BATCH_SIZE = 128
 
 
-def compress_step(model, x):
+def compress_step(model, x, batch_size=4):
     """Compress step."""
 
     # make tf data for fast data loading
-    x = tf.cast(x, dtype=tf.float32)
-    x = tf.data.Dataset.from_tensor_slices(x)
-    x = x.batch(16)
-    x = x.prefetch(tf.data.AUTOTUNE)
 
+    x = DataLoader(x, batch_size=batch_size, shuffle=False)
     tensor = []
-    for i, data in enumerate(x):
-        compressed = model.compress(tf.cast(data, tf.float32))
-        tensor.append(compressed[0])
-    tensor = tf.concat(tensor, axis=0)
-    tensors = tf.tuple([tensor, *compressed[1:]])
+    model_divice = next(model.parameters()).device
+    for i, da in enumerate(x):
+        compressed = model.compress(da.to(model_divice).type(torch.float))
+        tensor.append(compressed[0].detach().cpu())
+    tensor = torch.cat(tensor, axis=0).cpu()
+    tensors = (tensor, *compressed[1:])
     return tensors
 
 
 def compress(model, x, mask=None, verbose=False):
     """Compress data."""
-
+    if IS_CHECKING_MEMORY:
+        utils.check_memory("Before compression")
     print("Compressing...")
     start_time = time.perf_counter()
-    tensors = compress_step(model, x)
+    tensors = compress_step(model, x, batch_size=BATCH_SIZE)
     encoding_time = time.perf_counter() - start_time
     logger.info(f"Encoding time: {encoding_time:0.2f} seconds")
     logger.info(f"Compression completed!")
+    if IS_CHECKING_MEMORY:
+        utils.check_memory("After compression")
 
     if verbose:
-        packed = tfc.PackedTensors()
-        packed.pack(tensors)
+        packed = tensors
         start_time = time.perf_counter()
         x_hat = decompress(model, packed, mask)
         decoding_time = time.perf_counter() - start_time
@@ -57,52 +63,53 @@ def compress(model, x, mask=None, verbose=False):
             }
         )
         save_results(**results)
+        return tensors, x_hat
     gc.collect()
-    tf.keras.backend.clear_session()
     return tensors
 
 
 def save_compressed(tensors, output_file):
-    packed = tfc.PackedTensors()
-    packed.pack(tensors)
-    with open(output_file, "wb") as f:
-        f.write(packed.string)
+    tensors = [np.array(tensor) for tensor in tensors]
+    np.savez_compressed(output_file, *tensors)
 
 
 def decompress_step(model, packed, batch_size=4):
     """Decompress step."""
-    dtypes = [t.dtype for t in model.decompress.input_signature]
-    tensors = packed.unpack(dtypes)
+    tensors = packed
+    # tensors = [torch.tensor(x) for x in tensors]
     y_shape = tensors[1]
     num_hidden_tensor = int(np.prod(y_shape[:-1]) * batch_size)
-
-    # make tf data for fast data loading
-    y_quantized = tf.cast(tensors[0], dtype=tf.int64)
-    y_quantized = tf.data.Dataset.from_tensor_slices(y_quantized)
-    y_quantized = y_quantized.batch(num_hidden_tensor)
-    y_quantized = y_quantized.prefetch(tf.data.AUTOTUNE)
+    # make data for fast data loading
+    y_quantized = DataLoader(
+        tensors[0].type(torch.int64),
+        batch_size=num_hidden_tensor,
+        shuffle=False,
+    )
 
     x_hat = []
-    for i, data in enumerate(y_quantized):
-        decompressed = model.decompress(tf.cast(data, tf.int32), *tensors[1:])
-        x_hat.append(decompressed)
-    x_hat = tf.concat(x_hat, axis=0)
+    model_divice = next(model.parameters()).device
+    for i, da in enumerate(y_quantized):
+        da = da.to(model_divice).type(torch.int64)
+        decompressed = model.decompress(da, *tensors[1:])
+        x_hat.append(decompressed.detach().cpu())
+    x_hat = torch.cat(x_hat, axis=0).cpu()
     return x_hat
 
 
 def decompress(model, x, mask=None, verbose=False):
     """Decompress data."""
-
+    if IS_CHECKING_MEMORY:
+        utils.check_memory("Before decompression")
     print("Decompressing...")
     start_time = time.perf_counter()
-    batch_size = 16
-    x_hat = decompress_step(model, x, batch_size)
+    x_hat = decompress_step(model, x, batch_size=BATCH_SIZE)
     if mask is not None:
         x_hat = x_hat * mask
     decoding_time = time.perf_counter() - start_time
     logger.info(f"Decoding time: {decoding_time:0.2f} seconds")
+    if IS_CHECKING_MEMORY:
+        utils.check_memory("After decompression")
     gc.collect()
-    tf.keras.backend.clear_session()
     return x_hat
 
 
@@ -115,23 +122,27 @@ def save_reconstructed(x_hat, output_file):
 
 def get_metrics(x, x_hat, packed, redundancy=None):
     # Cast to float in order to compute metrics.
-    x = tf.cast(x, tf.float32)
-    x_hat = tf.cast(x_hat, tf.float32)
-    max_val = tf.reduce_max(x) - tf.reduce_min(x)
-    mse = tf.reduce_mean(tf.math.squared_difference(x, x_hat))
+    x = x.numpy()
+    x_hat = x_hat.numpy()
+    max_val = np.amax(x) - np.amin(x)
+    mse = (np.square(x - x_hat)).mean()
     psnr = 20 * np.log10(max_val) - 10 * np.log10(mse)
 
-    compressed_size = len(packed.string)  # in bytes
+    output_file = "./outputs/compressed.npz"
+    np.savez_compressed(output_file, *packed)
+    compressed_size = round(os.stat(output_file).st_size / 1024, 2)  # in KB
+    os.remove(output_file)
+
     if redundancy is not None:
-        logger.info(f"redundancy: {redundancy:,} bytes")
+        logger.info(f"redundancy: {redundancy:,} KB")
 
         compressed_size = compressed_size + redundancy
-    original_size = len(np.array(x).tobytes())  # in bytes
+    original_size = round(len(np.array(x).tobytes()) / 1024, 2)  # in KB
     compression_ratio = compressed_size / original_size
     bit_rate = 32 * compression_ratio
 
-    logger.info(f"Compressed size: {compressed_size:,} bytes")
-    logger.info(f"Original size: {original_size:,} bytes")
+    logger.info(f"Compressed size: {compressed_size:,} KB")
+    logger.info(f"Original size: {original_size:,} KB")
     logger.info(f"Mean squared error: {mse:0.6f}")
     logger.info(f"PSNR (dB): {psnr:0.2f}")
     logger.info(f"bit_rate: {bit_rate:0.6f}")
@@ -146,8 +157,10 @@ def get_metrics(x, x_hat, packed, redundancy=None):
 
 def update_dict_cond(results, key, value):
     if not (key.startswith("__") or key == "results"):
-        if isinstance(value, tf.Tensor):
-            value = np.array(value)
+        # if isinstance(value, tf.Tensor):
+        #     value = np.array(value)
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().numpy()
         if not isinstance(value, str):
             value = np.round(value, 4)
         results.update({key: value})
@@ -165,9 +178,7 @@ def save_results(
         else:
             update_dict_cond(results, k, v)
 
-    folder = "./outputs/"
+    folder = os.path.join("./outputs/", model_name)
     utils.mkdir_if_not_exist(folder)
-    with open(
-        os.path.join(folder, f"results-{model_name.split('-')[0]}.txt"), "a"
-    ) as f:
+    with open(os.path.join(folder, f"results"), "a") as f:
         f.write(f"{json.dumps(results, cls=utils.NpEncoder)}\n")
