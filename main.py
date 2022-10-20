@@ -151,9 +151,6 @@ def main():
                 x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
                 x_hat = dataio.revert_partition(x_hat)
                 utils.save_reconstruction(x[0], x_hat[0], output_file, output_folder)
-                # utils.plot_results(x[0], x_hat[0])
-                if i > 1:
-                    sys.exit()
 
             logger.log(
                 f"Total Compression-Decompression time: {time.perf_counter() - start_compression_time:0.4f} seconds"

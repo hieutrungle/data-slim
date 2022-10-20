@@ -76,7 +76,6 @@ def save_compressed(tensors, output_file):
 def decompress_step(model, packed, batch_size=4):
     """Decompress step."""
     tensors = packed
-    # tensors = [torch.tensor(x) for x in tensors]
     y_shape = tensors[1]
     num_hidden_tensor = int(np.prod(y_shape[:-1]) * batch_size)
     # make data for fast data loading
@@ -180,5 +179,5 @@ def save_results(
 
     folder = os.path.join("./outputs/", model_name)
     utils.mkdir_if_not_exist(folder)
-    with open(os.path.join(folder, f"results"), "a") as f:
+    with open(os.path.join(folder, f"results.txt"), "a") as f:
         f.write(f"{json.dumps(results, cls=utils.NpEncoder)}\n")
