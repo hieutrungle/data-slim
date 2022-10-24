@@ -5,7 +5,7 @@ from torchinfo import summary
 import torch
 import argparse
 import data_io
-from models import res_conv2d_attn
+from models import res_conv2d_attn, simple_model
 from utils import logger, utils
 import compression
 import train
@@ -23,7 +23,10 @@ def main():
 
     # Model
     start_time = time.perf_counter()
-    model = res_conv2d_attn.VQCPVAE(
+    # model = res_conv2d_attn.VQCPVAE(
+    #     **utils.args_to_dict(args, utils.model_defaults().keys())
+    # )
+    model = simple_model.VQCPVAE(
         **utils.args_to_dict(args, utils.model_defaults().keys())
     )
     model = model.to(torch.device(DEVICE))
@@ -41,6 +44,8 @@ def main():
     logger.log(
         summary(model, model.input_shape, col_width=30, depth=4, verbose=args.verbose)
     )
+
+    # sys.exit()
 
     if args.command == "train":
 
