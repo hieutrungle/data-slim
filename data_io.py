@@ -284,7 +284,7 @@ class BaseDataGen(data.Dataset):
         masks = xr.where(masks > 0, 1, np.nan)  # for volumetric temperature
 
         data_name = "TEMP"
-        das = ds[data_name]  # (N, 2400, 3600)
+        das = ds[data_name][:, 0, ...]  # (N, z_t, 2400, 3600)
         das = das * masks
 
         # masks = 0 where das is nan, otherwise 1
