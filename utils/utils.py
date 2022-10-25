@@ -14,6 +14,7 @@ from pathlib import Path
 from skimage.io.collection import alphanumeric_key
 import torch
 import argparse
+import errno
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -25,15 +26,17 @@ def mkdir_if_not_exist(path):
 
 
 def get_filenames(data_path, prefix=".nc", random_seed=None):
+
     if data_path.endswith(".nc"):
-        # data_path is a single file
-        filenames = [data_path]
+        if os.path.isfile(data_path):
+            # data_path is a single file
+            filenames = [data_path]
+        else:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
     else:
         filenames = sorted(
             glob.glob(os.path.join(data_path, "*" + prefix)), key=alphanumeric_key
         )
-    # random.seed(random_seed)
-    # random.shuffle(filenames)
     return filenames
 
 
@@ -354,7 +357,11 @@ def log_args_and_device_info(args):
     if args.verbose == True:
         message = "\n"
         for k, v in args.__dict__.items():
-            message += k + " = " + str(v) + "\n"
+            if isinstance(v, str):
+                message += f"{k} = '{v}'\n"
+            else:
+                message += f"{k} = {v}\n"
+
         # Additional Info when using cuda
         if DEVICE.type == "cuda":
             message += f"\nUsing device: {str(DEVICE)}\n"

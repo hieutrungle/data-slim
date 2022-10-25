@@ -58,3 +58,6 @@ scikit-image
 seaborn
 black
 pep8
+jupyterlab
+tqdm
+ipywidgets

@@ -23,12 +23,12 @@ def main():
 
     # Model
     start_time = time.perf_counter()
-    # model = res_conv2d_attn.VQCPVAE(
-    #     **utils.args_to_dict(args, utils.model_defaults().keys())
-    # )
-    model = simple_model.VQCPVAE(
+    model = res_conv2d_attn.VQCPVAE(
         **utils.args_to_dict(args, utils.model_defaults().keys())
     )
+    # model = simple_model.VQCPVAE(
+    #     **utils.args_to_dict(args, utils.model_defaults().keys())
+    # )
     model = model.to(torch.device(DEVICE))
     try:
         stats = utils.get_data_statistics(args.data_dir)

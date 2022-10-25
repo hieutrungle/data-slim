@@ -278,9 +278,12 @@ class BaseDataGen(data.Dataset):
             raise ValueError(
                 "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
             )
-        masks = xr.where(masks != -1, 1, np.nan)
+        # Based on data type, fillna_value is different
+        # TODO: change the value here, add mask_threshold to init args
+        # masks = xr.where(masks != -1, 1, np.nan) # for SST dataset
+        masks = xr.where(masks > 0, 1, np.nan)  # for volumetric temperature
 
-        data_name = "SST"
+        data_name = "TEMP"
         das = ds[data_name]  # (N, 2400, 3600)
         das = das * masks
 
