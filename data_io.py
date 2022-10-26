@@ -38,7 +38,12 @@ class Dataio:
                 transforms.ToTensor(),
             ]
         )
-        self.padder = None
+        if len(data_shape) == 4:
+            self.padder = padder.Padder2D(patch_size, data_shape)
+        elif len(data_shape) == 5:
+            self.padder = padder.Padder3D(patch_size, data_shape)
+        else:
+            raise ValueError("data shape must be of length 4 or 5.")
 
     def get_train_test_data_loader(self, data_dir, ds_name, local_test=False):
         filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
@@ -70,7 +75,6 @@ class Dataio:
         return train_ds, test_ds
 
     def get_compression_data_loader(self, input_path, ds_name):
-        self.batch_size = int(self.get_num_batch_per_time_slice())
         filenames, fillna_value = utils.get_filenames_and_fillna_value(input_path)
         ds = self.create_disjoint_generator(
             filenames, ds_name, fillna_value, name="compression", shuffle=False
@@ -103,7 +107,6 @@ class Dataio:
             name=name,
             transform=self.transform,
         )
-        self.padder = data_gen.padder
         self._update_parameters(data_gen, name=name)
         return data_gen
 
@@ -123,24 +126,6 @@ class Dataio:
             name=name,
             transform=self.transform,
         )
-        self._update_parameters(data_gen, name=name)
-        return data_gen
-
-    def create_compression_generator(
-        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
-    ):
-        data_gen = CompressionDataGen(
-            filenames,
-            ds_name,
-            batch_size=self.batch_size,
-            patch_size=self.patch_size,
-            data_shape=self.data_shape,
-            fillna_value=fillna_value,
-            shuffle=shuffle,
-            name=name,
-            transform=self.transform,
-        )
-        self.padder = data_gen.padder
         self._update_parameters(data_gen, name=name)
         return data_gen
 
