@@ -73,10 +73,15 @@ def save_compressed(tensors, output_file):
     np.savez_compressed(output_file, *tensors)
 
 
-def decompress_step(model, packed, batch_size=4):
+def load_compressed(input_file):
+    with np.load(input_file) as f:
+        tensors = [f[key] for key in f.files]
+    return tensors
+
+
+def decompress_step(model, tensors, batch_size=4):
     """Decompress step."""
-    tensors = packed
-    y_shape = tensors[1]
+    y_shape = np.array(tensors[1])
     num_hidden_tensor = int(np.prod(y_shape[:-1]) * batch_size)
     # make data for fast data loading
     y_quantized = DataLoader(
@@ -95,13 +100,16 @@ def decompress_step(model, packed, batch_size=4):
     return x_hat
 
 
-def decompress(model, x, mask=None, verbose=False):
+def decompress(model, tensors, mask=None, verbose=False):
     """Decompress data."""
     if IS_CHECKING_MEMORY:
         utils.check_memory("Before decompression")
-    print("Decompressing...")
     start_time = time.perf_counter()
-    x_hat = decompress_step(model, x, batch_size=BATCH_SIZE)
+    if not isinstance(tensors[0], torch.Tensor):
+        tensors = [torch.tensor(tensor) for tensor in tensors]
+    if not isinstance(mask, torch.Tensor):
+        mask = torch.tensor(mask)
+    x_hat = decompress_step(model, tensors, batch_size=BATCH_SIZE)
     if mask is not None:
         x_hat = x_hat * mask
     decoding_time = time.perf_counter() - start_time
