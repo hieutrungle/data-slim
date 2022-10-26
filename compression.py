@@ -1,6 +1,5 @@
 import sys
 import os
-import utils.utils as utils
 import numpy as np
 import os
 import json
@@ -39,16 +38,17 @@ def compress(model, x, mask=None, verbose=False):
     """Compress data."""
     if IS_CHECKING_MEMORY:
         utils.check_memory("Before compression")
-    print("Compressing...")
+
     start_time = time.perf_counter()
     tensors = compress_step(model, x, batch_size=BATCH_SIZE)
     encoding_time = time.perf_counter() - start_time
-    logger.info(f"Encoding time: {encoding_time:0.2f} seconds")
-    logger.info(f"Compression completed!")
+
     if IS_CHECKING_MEMORY:
         utils.check_memory("After compression")
 
     if verbose:
+        logger.info(f"Encoding time: {encoding_time:0.2f} seconds")
+
         packed = tensors
         start_time = time.perf_counter()
         x_hat = decompress(model, packed, mask)

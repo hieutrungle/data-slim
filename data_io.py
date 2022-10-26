@@ -40,17 +40,18 @@ class Dataio:
         )
         self.padder = None
 
-    def get_train_test_data_loader(self, data_dir, local_test=False):
+    def get_train_test_data_loader(self, data_dir, ds_name, local_test=False):
         filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
         if local_test:
             filenames = filenames[:2]
         split = int(len(filenames) * 0.99)
         train_files = filenames[:split]
+
+        # Train data loader
         logger.log(f"number of train_files: {len(train_files)}")
         train_dataset = self.create_overlapping_generator(
-            train_files, fillna_value=fillna_value, name="train", shuffle=True
+            train_files, ds_name, fillna_value=fillna_value, name="train", shuffle=True
         )
-        logger.log(f"train_dataset: {train_dataset}")
         train_ds = self.get_data_loader(
             train_dataset,
             drop_last=True,
@@ -58,18 +59,24 @@ class Dataio:
             num_workers=4 * NUM_GPUS,
             pin_memory=True,
         )
-        # create test_ds
+
+        # Test data loader
         test_files = filenames[split:]
         logger.log(f"number of test_files: {len(test_files)}")
         test_dataset = self.create_disjoint_generator(
-            test_files, fillna_value=fillna_value, name="test", shuffle=False
+            test_files, ds_name, fillna_value=fillna_value, name="test", shuffle=False
         )
-        logger.log(f"test_dataset: {test_dataset}")
-        test_ds = self.get_data_loader(
-            test_dataset,
-            num_workers=4 * NUM_GPUS,
-        )
+        test_ds = self.get_data_loader(test_dataset, num_workers=4 * NUM_GPUS)
         return train_ds, test_ds
+
+    def get_compression_data_loader(self, input_path, ds_name):
+        self.batch_size = int(self.get_num_batch_per_time_slice())
+        filenames, fillna_value = utils.get_filenames_and_fillna_value(input_path)
+        ds = self.create_disjoint_generator(
+            filenames, ds_name, fillna_value, name="compression", shuffle=False
+        )
+        ds = self.get_data_loader(ds, num_workers=4 * NUM_GPUS)
+        return ds
 
     def get_num_batch_per_time_slice(self):
         # number of disjoint tiles per time slice for compression purpose
@@ -83,10 +90,11 @@ class Dataio:
         return np.prod(sizes)
 
     def create_disjoint_generator(
-        self, filenames, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = DisjointDataGen(
             filenames,
+            ds_name,
             batch_size=self.batch_size,
             patch_size=self.patch_size,
             data_shape=self.data_shape,
@@ -100,10 +108,11 @@ class Dataio:
         return data_gen
 
     def create_overlapping_generator(
-        self, filenames, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = OverlappingDataGen(
             filenames,
+            ds_name,
             kernel_size=self.patch_size,
             stride=self.patch_size - 8,
             batch_size=self.batch_size,
@@ -118,10 +127,11 @@ class Dataio:
         return data_gen
 
     def create_compression_generator(
-        self, filenames, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = CompressionDataGen(
             filenames,
+            ds_name,
             batch_size=self.batch_size,
             patch_size=self.patch_size,
             data_shape=self.data_shape,
@@ -157,6 +167,7 @@ class Dataio:
     def _update_parameters(self, data_gen, name=None):
         self.params.update(
             {
+                f"{name}.data_gen": data_gen.__repr__(),
                 f"{name}.num_time_slices": data_gen.num_time_slices,
                 f"{name}.num_patch_per_time_slice": data_gen.num_patch_per_time_slice,
                 f"{name}.num_patches": data_gen.num_patches,
@@ -206,7 +217,7 @@ class Dataio:
         message = "\n"
         for k, v in self.get_training_parameters().items():
             message += k + " = " + str(v) + "\n"
-        logger.log(f"Training Parameters:{message}")
+        logger.log(f"DataIO Parameters:{message}")
 
 
 class BaseDataGen(data.Dataset):
@@ -218,6 +229,7 @@ class BaseDataGen(data.Dataset):
     def __init__(
         self,
         filenames,
+        ds_name,
         batch_size,
         data_shape,
         patch_size,
@@ -229,6 +241,7 @@ class BaseDataGen(data.Dataset):
         super().__init__()
         self.num_outputs = None
         self.filenames = filenames
+        self.ds_name = ds_name
         self.fillna_value = fillna_value
         self.name = name
         self.shuffle = shuffle
@@ -280,11 +293,11 @@ class BaseDataGen(data.Dataset):
             )
         # Based on data type, fillna_value is different
         # TODO: change the value here, add mask_threshold to init args
-        # masks = xr.where(masks != -1, 1, np.nan) # for SST dataset
-        masks = xr.where(masks > 0, 1, np.nan)  # for volumetric temperature
+        masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
+        # masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
 
-        data_name = "TEMP"
-        das = ds[data_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        # das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        das = ds[self.ds_name]
         das = das * masks
 
         # masks = 0 where das is nan, otherwise 1
@@ -308,6 +321,7 @@ class DisjointDataGen(BaseDataGen):
     def __init__(
         self,
         filenames,
+        ds_name,
         batch_size,
         patch_size,
         data_shape,
@@ -318,6 +332,7 @@ class DisjointDataGen(BaseDataGen):
     ):
         super().__init__(
             filenames=filenames,
+            ds_name=ds_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -393,6 +408,7 @@ class OverlappingDataGen(BaseDataGen):
     def __init__(
         self,
         filenames,
+        ds_name,
         kernel_size,
         stride,
         batch_size,
@@ -406,6 +422,7 @@ class OverlappingDataGen(BaseDataGen):
     ):
         super().__init__(
             filenames=filenames,
+            ds_name=ds_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -494,6 +511,7 @@ class CompressionDataGen(BaseDataGen):
     def __init__(
         self,
         filenames,
+        ds_name,
         batch_size,
         patch_size,
         data_shape,
@@ -504,6 +522,7 @@ class CompressionDataGen(BaseDataGen):
     ):
         super().__init__(
             filenames=filenames,
+            ds_name=ds_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
