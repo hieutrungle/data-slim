@@ -25,30 +25,30 @@ def mkdir_if_not_exist(path):
         os.makedirs(path)
 
 
-def get_filenames(data_path, prefix=".nc", random_seed=None):
+def get_filenames(data_path, postfix=".nc", random_seed=None):
 
-    if data_path.endswith(".nc"):
-        if os.path.isfile(data_path):
-            # data_path is a single file
-            filenames = [data_path]
-        else:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
-    else:
+    if os.path.isfile(data_path):
+        filenames = [data_path]
+    elif os.path.isdir(data_path):
         filenames = sorted(
-            glob.glob(os.path.join(data_path, "*" + prefix)), key=alphanumeric_key
+            glob.glob(os.path.join(data_path, f"*{postfix}")), key=alphanumeric_key
         )
+    else:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
     return filenames
 
 
 def get_data_statistics(data_path):
-    if data_path.endswith(".nc"):
+    if os.path.isfile(data_path):
         # data_path is a single file, look into the parent
         # directory to find the statistics file
         filename = Path(data_path)
         parent_folder = filename.parent.absolute()
         filename = glob.glob(os.path.join(parent_folder, "*.csv"))[0]
-    else:
+    elif os.path.isdir(data_path):
         filename = glob.glob(os.path.join(data_path, "*.csv"))[0]
+    else:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
 
     df = pd.read_csv(filename, index_col=0)
     stats = {}
@@ -57,8 +57,8 @@ def get_data_statistics(data_path):
     return stats
 
 
-def get_filenames_and_fillna_value(data_path, prefix=".nc"):
-    filenames = get_filenames(data_path, prefix=prefix)
+def get_filenames_and_fillna_value(data_path, postfix=".nc"):
+    filenames = get_filenames(data_path, postfix=postfix)
     try:
         stats = get_data_statistics(data_path)
         fillna_value = stats["mean"]
