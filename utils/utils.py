@@ -89,56 +89,6 @@ def mkdir_storage(model_dir, resume={}):
     return summaries_dir, checkpoints_dir
 
 
-def save_data_as_fig(
-    da: float, da_min: float, da_max: float, output_path: str, fig_name: str
-):
-    fig = figure.Figure(figsize=(36, 18))
-    ax = fig.subplots(1)
-    ax.imshow(da, vmin=da_min, vmax=da_max, cmap="seismic")
-    ax.axis("tight")
-    ax.axis("off")
-    ax.set_title(f"{fig_name}")
-    ax.autoscale(False)
-    fig.savefig(os.path.join(output_path, fig_name))
-
-
-def save_reconstruction(x, x_hat, file_name, output_path=None):
-    """plot reconstruct and original data"""
-
-    if output_path == None:
-        output_path = os.path.join("./outputs/", file_name)
-    mkdir_if_not_exist(output_path)
-
-    # Get the min and max of all your data
-    _min, _max = np.amin(x), np.amax(x)
-
-    plt.rcParams.update({"font.size": 22})
-    fig = figure.Figure(figsize=(36, 12))
-    i = 0
-    axes = fig.subplots(nrows=1, ncols=2, sharey=True)
-    for image, name in zip([x, x_hat], ["original", "reconstructed"]):
-        im = axes[i].imshow(image, vmin=_min, vmax=_max, cmap="seismic")
-        axes[i].set_adjustable("box")
-        axes[i].axis("tight")
-        axes[i].axis("off")
-        axes[i].set_title(f"{name}")
-        axes[i].autoscale(False)
-        i += 1
-    fig.colorbar(im, ax=axes, location="bottom", fraction=0.08, pad=0.1, shrink=0.9)
-    fig.suptitle(f"Visualization of the original and reconstructed data of {file_name}")
-    fig.savefig(os.path.join(output_path, f"{file_name}_comparison.png"))
-
-    save_data_as_fig(x, _min, _max, output_path, f"{file_name}_original.png")
-    save_data_as_fig(x_hat, _min, _max, output_path, f"{file_name}_reconstructed.png")
-    # Clear the current axes.
-    plt.cla()
-    # Clear the current figure.
-    plt.clf()
-    # Closes all the figure windows.
-    plt.close("all")
-    gc.collect()
-
-
 def get_ocean_statistics(
     da, mask_value, verbose=False, saved_path="da_statistics.csv", is_save=True
 ):
@@ -176,6 +126,7 @@ def get_da_statistics(da, verbose=False, saved_path="da_statistics.csv", is_save
 
 
 class NpEncoder(json.JSONEncoder):
+    # json format for saving numpy array
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
@@ -399,6 +350,7 @@ def configure_args(args):
 
 
 def get_checkpoint(args):
+    # Get checkpoint to resume training
     checkpoint = {}
     ckpt_files = glob.glob(os.path.join(args.model_path, "checkpoints", "*.pt"))
     weight_path = ""
@@ -432,9 +384,73 @@ def get_checkpoint(args):
     return checkpoint
 
 
+def load_model_with_checkpoint(model, weight_path, verbose=False):
+    is_weight_loaded = False
+    if os.path.isfile(weight_path):
+        checkpoint = torch.load(weight_path, map_location=DEVICE)
+        model.load_state_dict(checkpoint)
+        is_weight_loaded = True
+        if verbose:
+            logger.log(f"weight path: {weight_path}")
+        logger.log(f"Model weights successfully loaded.\n")
+    else:
+        logger.log(f"No pretrained model found at {weight_path}")
+    return model, is_weight_loaded
+
+
 def check_memory(check_name: str):
     free_mem, used_mem = torch.cuda.mem_get_info()
     logger.log(
         f"{check_name}: "
         f"Free memory: {free_mem / 1024**3} GB; Used memory: {used_mem / 1024**3} GB"
     )
+
+
+def save_data_as_fig(
+    da: float, da_min: float, da_max: float, output_path: str, fig_name: str
+):
+    fig = figure.Figure(figsize=(36, 18))
+    ax = fig.subplots(1)
+    ax.imshow(da, vmin=da_min, vmax=da_max, cmap="seismic")
+    ax.axis("tight")
+    ax.axis("off")
+    ax.set_title(f"{fig_name}")
+    ax.autoscale(False)
+    fig.savefig(os.path.join(output_path, fig_name))
+
+
+def save_reconstruction(x, x_hat, file_name, output_path=None):
+    """save reconstruct and original data"""
+
+    if output_path == None:
+        output_path = os.path.join("./outputs/", file_name)
+    mkdir_if_not_exist(output_path)
+
+    # Get the min and max of all your data
+    _min, _max = np.amin(x), np.amax(x)
+
+    plt.rcParams.update({"font.size": 22})
+    fig = figure.Figure(figsize=(36, 12))
+    i = 0
+    axes = fig.subplots(nrows=1, ncols=2, sharey=True)
+    for image, name in zip([x, x_hat], ["original", "reconstructed"]):
+        im = axes[i].imshow(image, vmin=_min, vmax=_max, cmap="seismic")
+        axes[i].set_adjustable("box")
+        axes[i].axis("tight")
+        axes[i].axis("off")
+        axes[i].set_title(f"{name}")
+        axes[i].autoscale(False)
+        i += 1
+    fig.colorbar(im, ax=axes, location="bottom", fraction=0.08, pad=0.1, shrink=0.9)
+    fig.suptitle(f"Visualization of the original and reconstructed data of {file_name}")
+    fig.savefig(os.path.join(output_path, f"{file_name}_comparison.png"))
+
+    save_data_as_fig(x, _min, _max, output_path, f"{file_name}_original.png")
+    save_data_as_fig(x_hat, _min, _max, output_path, f"{file_name}_reconstructed.png")
+    # Clear the current axes.
+    plt.cla()
+    # Clear the current figure.
+    plt.clf()
+    # Closes all the figure windows.
+    plt.close("all")
+    gc.collect()
