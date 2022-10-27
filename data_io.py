@@ -23,21 +23,12 @@ NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 
 class Dataio:
-    def __init__(
-        self,
-        batch_size,
-        patch_size,
-        data_shape,
-    ):
+    def __init__(self, batch_size, patch_size, data_shape):
         self.batch_size = batch_size
         self.patch_size = patch_size
         self.data_shape = data_shape
         self.params = {}
-        self.transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-            ]
-        )
+        self.transform = transforms.Compose([transforms.ToTensor()])
         if len(data_shape) == 4:
             self.padder = padder.Padder2D(patch_size, data_shape)
         elif len(data_shape) == 5:
@@ -278,11 +269,15 @@ class BaseDataGen(data.Dataset):
             )
         # Based on data type, fillna_value is different
         # TODO: change the value here, add mask_threshold to init args
-        masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
-        # masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
+        if self.ds_name == "SST":
+            masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
+        if self.ds_name == "TEMP":
+            masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
 
-        # das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
-        das = ds[self.ds_name]
+        if len(ds[self.ds_name].shape) == 4:
+            das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        elif len(ds[self.ds_name].shape) == 3:
+            das = ds[self.ds_name]
         das = das * masks
 
         # masks = 0 where das is nan, otherwise 1
