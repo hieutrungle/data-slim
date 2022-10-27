@@ -68,7 +68,7 @@ def compress(model, x, mask=None, verbose=False):
     return tensors
 
 
-def save_compressed(tensors, output_file):
+def save_compressed(output_file, tensors):
     tensors = [np.array(tensor) for tensor in tensors]
     np.savez_compressed(output_file, *tensors)
 
@@ -104,7 +104,6 @@ def decompress(model, tensors, mask=None, verbose=False):
     """Decompress data."""
     if IS_CHECKING_MEMORY:
         utils.check_memory("Before decompression")
-    start_time = time.perf_counter()
     if not isinstance(tensors[0], torch.Tensor):
         tensors = [torch.tensor(tensor) for tensor in tensors]
     if not isinstance(mask, torch.Tensor):
@@ -112,8 +111,6 @@ def decompress(model, tensors, mask=None, verbose=False):
     x_hat = decompress_step(model, tensors, batch_size=BATCH_SIZE)
     if mask is not None:
         x_hat = x_hat * mask
-    decoding_time = time.perf_counter() - start_time
-    logger.info(f"Decoding time: {decoding_time:0.2f} seconds")
     if IS_CHECKING_MEMORY:
         utils.check_memory("After decompression")
     gc.collect()
@@ -124,7 +121,7 @@ def save_reconstructed(x_hat, output_file):
     # Write reconstructed data to file.
     if output_file is not None:
         with open(output_file, "wb") as f:
-            f.write(x_hat.numpy().tobytes())
+            f.write(np.array(x_hat).tobytes())
 
 
 def get_metrics(x, x_hat, packed, redundancy=None):
