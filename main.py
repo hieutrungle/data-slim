@@ -1,15 +1,20 @@
-import enum
 import sys
 import os
 from torchinfo import summary
 import torch
 import argparse
+import netcdf_utils
 import data_io
-from models import res_conv2d_attn, simple_model
+from models import res_conv2d_attn
 from utils import logger, utils
 import compression
 import train
 import time
+import shutil
+from pathlib import Path
+import glob
+import errno
+import matplotlib.pyplot as plt
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -27,14 +32,26 @@ def main():
         **utils.args_to_dict(args, utils.model_defaults().keys())
     )
     model = model.to(torch.device(DEVICE))
-    try:
-        stats = utils.get_data_statistics(args.data_dir)
-        mean = stats["mean"]
-        std = stats["std"]
-        model.set_standardizer_layer(mean, std**2, 1e-6)
-    except Exception as e:
-        logger.log("No statistics file available. Cannot use Stadardization.")
-        logger.error(e)
+    if args.data_dir != "":
+        try:
+            stats = utils.get_data_statistics(args.data_dir)
+            stat_dir = args.data_dir
+        except Exception as e:
+            logger.log(f"No statistics file available at data_dir: {args.data_dir}")
+            logger.error(e)
+    if args.input_path != "":
+        try:
+            stats = utils.get_data_statistics(args.input_path)
+            stat_dir = args.input_path
+        except Exception as e:
+            logger.log(f"No statistics file available at input_path: {args.input_path}")
+            logger.error(e)
+    else:
+        raise ValueError("No statistics file available.")
+    mean = stats["mean"]
+    std = stats["std"]
+    model.set_standardizer_layer(mean, std**2, 1e-6)
+    logger.log(f"Using statistics from {stat_dir}")
     logger.log(
         f"Model initialization time: {time.perf_counter() - start_time:0.4f} seconds\n"
     )
@@ -87,33 +104,41 @@ def main():
             model, args.model_path, args.verbose
         )
         if not is_weight_loaded:
-            raise FileNotFoundError(f"{args.model_path} is not exists.")
+            raise FileNotFoundError(
+                errno.ENOENT, os.strerror(errno.ENOENT), args.model_path
+            )
         model.name = args.model_path.split("/")[-3]
 
-        if args.command == "compress":
+        #  Data IO
+        dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
+        dataio.batch_size = int(dataio.get_num_batch_per_time_slice())
 
+        if args.command == "compress":
             #  Load data
-            dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
             ds = dataio.get_compression_data_loader(args.input_path, args.ds_name)
             if args.verbose:
                 dataio.log_training_parameters()
 
             logger.log("Compressing...")
-            start_compression_time = time.perf_counter()
+            start_time = time.perf_counter()
             compress_loop(args, model, ds, dataio)
-
             logger.info(f"Compression completed!")
             logger.log(
-                f"Total Compression-Decompression time: {time.perf_counter() - start_compression_time:0.4f} seconds"
+                f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
             )
 
         else:
-            # Load mask
-            x = torch.rand([4096, 1])
-            input_path = "random_data.tfci"
-            output_path = os.path.join(output_path, input_path + ".f32")
-            x_hat = compression.decompress(model, x, args.verbose)
-            compression.save_reconstructed(x_hat, output_path)
+            # Load compressed data (mask included)
+            filenames = utils.get_filenames(args.input_path, postfix=".npz")
+            metadata_file = utils.get_filenames(args.input_path, postfix=".nc")
+            filenames.extend(metadata_file)
+            logger.log(f"Decompressing...")
+            start_time = time.perf_counter()
+            decompress_loop(args, model, filenames, dataio)
+            logger.info(f"Compression completed!")
+            logger.log(
+                f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
+            )
 
     else:
         raise ValueError(
@@ -132,6 +157,28 @@ def compress_loop(args, model, ds, dataio):
         output_filename = args.input_path.split("/")[-1].rpartition(".")[0] + f"_{i}"
         output_file = os.path.join(output_path, output_filename)
 
+        # Save mask and stats and metadata
+        if i == 0:
+            # Mask
+            mask_path = os.path.join(output_path, "mask")
+            compression.save_compressed(mask_path, [mask])
+            # Stats
+            stat_folder = Path(args.input_path).parent.absolute()
+            stat_path = glob.glob(os.path.join(stat_folder, "*.csv"))[0]
+            stat_path = Path(stat_path)
+            stat_filename = "stats.csv"
+            shutil.copy(stat_path, os.path.join(output_path, stat_filename))
+            # Metadata
+            metadata_output_file = output_filename[:-1] + "metadata.nc"
+            metadata_output_file = os.path.join(output_path, metadata_output_file)
+            if args.verbose:
+                logger.log(f"Saving mask to {mask_path}")
+                logger.log(f"Saving statistics to {stat_path}")
+                logger.log(f"Saving metadata to {metadata_output_file}")
+            netcdf_utils.create_dataset_with_only_metadata(
+                args.input_path, metadata_output_file, args.verbose
+            )
+
         if args.verbose:
             logger.log(f"\nCompressing {args.input_path}_{i}")
             tensors, x_hat = compression.compress(model, x, mask, args.verbose)
@@ -148,22 +195,60 @@ def compress_loop(args, model, ds, dataio):
         else:
             tensors = compression.compress(model, x, mask, args.verbose)
 
-        compression.save_compressed(tensors, output_file)
-        # save mask
-        if i == 0:
-            mask_path = os.path.join(output_path, "mask")
-            compression.save_compressed([mask], mask_path)
+        compression.save_compressed(output_file, tensors)
 
 
-def perform_decompress():
-    pass
+def decompress_loop(args, model, filenames, dataio):
+
+    if args.output_path is None:
+        output_path = os.path.join(
+            "./outputs",
+            "reconstructed_" + "".join(args.model_path.split("/")[-3]),
+        )
+    else:
+        output_path = args.output_path
+    utils.mkdir_if_not_exist(output_path)
+
+    mask_filename = [f for f in filenames if f.find("mask") != -1][0]
+    metadata_filename = [f for f in filenames if f.find("metadata") != -1][0]
+    filenames.remove(mask_filename)
+    filenames.remove(metadata_filename)
+    filenames = sorted(filenames)
+    ncfile = os.path.join(
+        output_path,
+        metadata_filename.split("/")[-1].rpartition("_")[0] + "-reconstruction.nc",
+    )
+    shutil.copy(metadata_filename, ncfile)
+
+    mask = compression.load_compressed(mask_filename)[0]
+    for i, filename in enumerate(filenames):
+        tensors = compression.load_compressed(filename)
+        x_hat = compression.decompress(model, tensors, mask, args.verbose)
+        x_hat = x_hat * mask
+        x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+        x_hat = dataio.revert_partition(x_hat)
+        x_hat = x_hat[0, ::-1, :, 0]
+
+        netcdf_utils.write_data_to_netcdf(
+            ncfile,
+            x_hat,
+            args.ds_name,
+            time_idx=i,
+            verbose=args.verbose,
+        )
+        # sys.exit()
+        # output_file = os.path.join(
+        #     output_path, filename.split("/")[-1].rpartition(".")[0] + ".f32"
+        # )
+
+        # compression.save_reconstructed(x_hat, output_file)
 
 
 def create_argparser():
     """Parses command line arguments."""
     defaults = dict(
         command="",
-        data_dir="../data/tccs/ocean/SST_modified",
+        data_dir="",
         ds_name="SST",
         model_path="./saved_models/model",
         use_fp16=False,
@@ -171,8 +256,8 @@ def create_argparser():
         resume="",
         iter=-1,  # -1 means resume from the best model
         local_test=False,
-        input_path="",
-        output_path="",
+        input_path="",  # a file if compress, a folder if decompress
+        output_path="",  # a folder if compress, a folder if decompress
     )
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
