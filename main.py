@@ -176,7 +176,7 @@ def compress_loop(args, model, ds, dataio):
                 logger.log(f"Saving statistics to {stat_path}")
                 logger.log(f"Saving metadata to {metadata_output_file}")
             netcdf_utils.create_dataset_with_only_metadata(
-                args.input_path, metadata_output_file, args.verbose
+                args.input_path, metadata_output_file, args.ds_name, args.verbose
             )
 
         if args.verbose:

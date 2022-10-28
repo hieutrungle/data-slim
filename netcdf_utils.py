@@ -56,7 +56,7 @@ def ncdump(nc_fid):
     return nc_attrs, nc_dims, nc_vars
 
 
-def create_dataset_with_only_metadata(input_file, output_file, verbose=False):
+def create_dataset_with_only_metadata(input_file, output_file, ds_name, verbose=False):
     with nc.Dataset(input_file) as ds:
         nc_attrs, nc_dims, nc_vars = ncdump(ds)
 
@@ -107,7 +107,7 @@ def create_dataset_with_only_metadata(input_file, output_file, verbose=False):
                     ]:
                         variable.setncattr(attr_name, attr)
 
-                if var_name.lower().find("sst") == -1:
+                if not (var_name.find(ds_name) != -1):
                     data = ds.variables[var_name][:]
                     data = data.filled(np.nan)
                     # ncfile.variables[var_name][:] = data
