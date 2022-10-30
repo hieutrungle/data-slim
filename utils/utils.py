@@ -202,6 +202,7 @@ def model_defaults():
         dropout=0.0,
         ema_decay=0.99,
         commitment_cost=0.25,
+        model_type="hierarchical",
         name="Compressor",
     )
 
@@ -248,6 +249,7 @@ def create_model(
     dropout,
     ema_decay,
     commitment_cost,
+    model_type,
     name,
 ):
     if patch_depth <= 0:
@@ -269,6 +271,7 @@ def create_model(
         dropout,
         ema_decay,
         commitment_cost,
+        model_type,
         name,
     )
 
@@ -285,7 +288,6 @@ def add_dict_to_argparser(parser, default_dict):
 
 def args_to_dict(args, keys):
     return {k: getattr(args, k) for k in keys}
-    # return {k: args.__dict__[k] for k in keys}
 
 
 def str2bool(v):
@@ -346,7 +348,7 @@ def configure_args(args):
     )
     if args.command == "train":
         args.model_path = args.model_path + args.prefix_folder
-    args.name = args.model_path.rpartition("/")[-1]
+    args.name = args.name + args.model_path.rpartition("/")[-1]
 
 
 def get_checkpoint(args):
