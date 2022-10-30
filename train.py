@@ -184,9 +184,9 @@ def train(
         log_every_n_steps=log_interval,
         logger=tfboard_logger,
         callbacks=_callbacks,
-        # limit_val_batches=0.1,
-        # limit_train_batches=0.01,
-        # limit_test_batches=0.01,
+        # limit_val_batches=0.05,
+        # limit_train_batches=0.05,
+        # limit_test_batches=0.05,
         gradient_clip_algorithm="norm",
         enable_progress_bar=train_verbose,
     )
