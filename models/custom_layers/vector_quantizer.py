@@ -31,10 +31,7 @@ class VectorQuantizer(nn.Module):
         encoding_indices = self.get_code_indices(flat_input)
         # Encoding, one hot encoding based on the encoding_indices
         # (B * H * W, 1) -> (B * H * W, num_embeddings)
-        encodings = torch.zeros(
-            encoding_indices.shape[0], self._num_embeddings, device=inputs.device
-        )
-        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        encodings = self.get_encodings(encoding_indices)
 
         # Quantize (B * H * W, num_embeddings) * (num_embeddings, C) -> (B * H * W, C)
         # Quantization example:
@@ -69,6 +66,38 @@ class VectorQuantizer(nn.Module):
         # (B * H * W, num_embeddings) -> (B * H * W, 1)
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
         return encoding_indices
+
+    def get_encodings(self, encoding_indices):
+        # one hot encoding based on the encoding_indices
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
+        encodings = torch.zeros(
+            encoding_indices.shape[0],
+            self._num_embeddings,
+            device=encoding_indices.device,
+        )
+        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        return encodings
+
+    def get_quantized_from_indices(
+        self, encoding_indices, quantized_shape_channel_last
+    ):
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
+        encodings = self.get_encodings(encoding_indices)
+        # (BxHxW, num_embeddings) * (embedding_dim, num_embeddings).T = (BxHxW, embedding_dim)
+        quantized = torch.matmul(encodings, self._embedding.weight)
+        # Unflatten quantized, (B * H * W, C) -> (B, H, W, C)
+        quantized = torch.reshape(
+            quantized,
+            (
+                -1,
+                quantized_shape_channel_last[-3],
+                quantized_shape_channel_last[-2],
+                quantized_shape_channel_last[-1],
+            ),
+        )
+        # (B, C, H, W)
+        quantized = quantized.permute(0, 3, 1, 2).contiguous()
+        return quantized
 
 
 class VectorQuantizerEMA(nn.Module):
@@ -106,12 +135,8 @@ class VectorQuantizerEMA(nn.Module):
 
         # (B * H * W, 1)
         encoding_indices = self.get_code_indices(flat_input)
-        # Encoding, one hot encoding based on the encoding_indices
         # (B * H * W, 1) -> (B * H * W, num_embeddings)
-        encodings = torch.zeros(
-            encoding_indices.shape[0], self._num_embeddings, device=inputs.device
-        )
-        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        encodings = self.get_encodings(encoding_indices)
 
         # Quantize (B * H * W, num_embeddings) * (num_embeddings, C) -> (B * H * W, C)
         # Quantization example:
@@ -169,6 +194,38 @@ class VectorQuantizerEMA(nn.Module):
         # (B * H * W, num_embeddings) -> (B * H * W, 1)
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
         return encoding_indices
+
+    def get_encodings(self, encoding_indices):
+        # one hot encoding based on the encoding_indices
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
+        encodings = torch.zeros(
+            encoding_indices.shape[0],
+            self._num_embeddings,
+            device=encoding_indices.device,
+        )
+        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        return encodings
+
+    def get_quantized_from_indices(
+        self, encoding_indices, quantized_shape_channel_last
+    ):
+        # (B * H * W, 1) -> (B * H * W, num_embeddings)
+        encodings = self.get_encodings(encoding_indices)
+        # (BxHxW, num_embeddings) * (embedding_dim, num_embeddings).T = (BxHxW, embedding_dim)
+        quantized = torch.matmul(encodings, self._embedding.weight)
+        # Unflatten quantized, (B * H * W, C) -> (B, H, W, C)
+        quantized = torch.reshape(
+            quantized,
+            (
+                -1,
+                quantized_shape_channel_last[-3],
+                quantized_shape_channel_last[-2],
+                quantized_shape_channel_last[-1],
+            ),
+        )
+        # (B, C, H, W)
+        quantized = quantized.permute(0, 3, 1, 2).contiguous()
+        return quantized
 
 
 if __name__ == "__main__":
