@@ -233,6 +233,122 @@ class ForwardMLP(nn.Module):
         return x
 
 
+class PreBlock(nn.Module):
+    """Preprocessing block for the encoder."""
+
+    def __init__(self, data_channels, pre_num_channels, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self._conv0 = cus_layers.Conv2dSame(
+            data_channels, pre_num_channels, kernel_size=1
+        )
+        self.act0 = nn.GELU()
+        self.act1 = nn.GELU()
+        self._conv1 = cus_layers.Conv2dSame(
+            pre_num_channels,
+            pre_num_channels * 2,
+            kernel_size=4,
+            stride=1,
+        )
+        self._conv2 = cus_layers.Conv2dSame(
+            pre_num_channels * 2,
+            pre_num_channels * 2,
+            kernel_size=3,
+            stride=1,
+        )
+
+    def forward(self, x):
+        x = self._conv0(x)
+        x = self.act0(x)
+        x = self._conv1(x)
+        x = self.act1(x)
+        x = self._conv2(x)
+        return x
+
+
+class PostBlock(nn.Module):
+    """Postprocessing block for the decoder"""
+
+    def __init__(self, post_num_channels, data_channels, name=None, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self.act0 = nn.GELU()
+        self.act1 = nn.GELU()
+        self._conv1 = cus_layers.Conv2dTransposeSame(
+            post_num_channels * 2,
+            post_num_channels,
+            kernel_size=3,
+            stride=1,
+        )
+        self._conv2 = cus_layers.Conv2dTransposeSame(
+            post_num_channels,
+            data_channels,
+            kernel_size=1,
+            stride=1,
+        )
+
+    def forward(self, x):
+        x = self.act0(x)
+        x = self._conv1(x)
+        x = self.act1(x)
+        x = self._conv2(x)
+        return x
+
+
+class EncodingStack(nn.Module):
+    def __init__(
+        self,
+        c_in,
+        c_out,
+        num_residual_blocks,
+        kernel_size=3,
+        stride=2,
+        name=None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.name = name
+        self._num_residual_blocks = num_residual_blocks
+        self._layers = nn.ModuleList(
+            [DownSamplingResBlock2D(c_in, c_out, kernel_size, stride)]
+        )
+        for _ in range(self._num_residual_blocks - 1):
+            self._layers.append(
+                DownSamplingResBlock2D(c_out, c_out, kernel_size, stride)
+            )
+
+    def forward(self, x):
+        for i in range(self._num_residual_blocks):
+            x = self._layers[i](x)
+        return x
+
+
+class DecodingStack(nn.Module):
+    def __init__(
+        self,
+        c_in,
+        c_out,
+        num_residual_blocks,
+        kernel_size=3,
+        stride=2,
+        name=None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.name = name
+        self._num_residual_blocks = num_residual_blocks
+
+        self._layers = nn.ModuleList()
+        for _ in range(self._num_residual_blocks - 1):
+            self._layers.append(UpSamplingResBlock2D(c_in, c_in, kernel_size, stride))
+        self._layers.append(UpSamplingResBlock2D(c_in, c_out, kernel_size, stride))
+
+    def forward(self, x):
+        for i in range(self._num_residual_blocks):
+            x = self._layers[i](x)
+        return x
+
+
 class TransformerEncodingBlock(nn.Module):
     """
     Transformer Encoding block for text processing
@@ -245,7 +361,7 @@ class TransformerEncodingBlock(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self.multihead_attention = MultiheadAttention(
+        self.multihead_attention = cus_layers.MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
             dropout=dropout,
@@ -276,104 +392,6 @@ class TransformerEncodingBlock(nn.Module):
         return attention_output_1
 
 
-def scaled_dot_product(q, k, v, mask=None, dropout_module=None):
-    d_k = q.size()[-1]
-    attn_logits = torch.matmul(q, k.transpose(-2, -1))
-    attn_logits = attn_logits / math.sqrt(d_k)
-    if mask is not None:
-        attn_logits = attn_logits.masked_fill(mask == 0, -9e15)
-    attention_weights = F.softmax(attn_logits, dim=-1)
-    if dropout_module is not None:
-        attention_weights = dropout_module(attention_weights)
-    values = torch.matmul(attention_weights, v)
-    return values, attention_weights
-
-
-class MultiheadAttention(nn.Module):
-    """
-    Multihead Attention module from "Attention is All You Need"
-    This attention is for text processing, not for image processing.
-    """
-
-    def __init__(
-        self, embed_dim, num_heads, dropout=0.0, bias=True, name=None, **kwargs
-    ):
-        super().__init__()
-        assert (
-            embed_dim % num_heads == 0
-        ), "Embedding dimension must be 0 modulo number of heads."
-        self.name = name
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-        self.bias = bias
-
-        # Stack all weight matrices 1...h together for efficiency
-        # Note that in many implementations you see "bias=False" which is optional
-        self.q_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.v_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.k_linear = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.dropout = nn.Dropout(dropout)
-        self.out = nn.Linear(embed_dim, embed_dim)
-
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        # Original Transformer initialization, see PyTorch documentation
-        nn.init.xavier_uniform_(self.q_linear.weight)
-        nn.init.xavier_uniform_(self.v_linear.weight)
-        nn.init.xavier_uniform_(self.k_linear.weight)
-        if self.bias:
-            nn.init.constant_(self.q_linear.bias.data, 0.0)
-            nn.init.constant_(self.v_linear.bias.data, 0.0)
-            nn.init.constant_(self.k_linear.bias.data, 0.0)
-        nn.init.xavier_uniform_(self.out.weight)
-        nn.init.constant_(self.out.bias.data, 0)
-
-    def forward(self, q, k, v, mask=None, return_attention=True):
-        batch_size = q.size(0)
-
-        # perform linear operation and split into h heads
-
-        k = self.k_linear(k).view(batch_size, -1, self.num_heads, self.head_dim)
-        q = self.q_linear(q).view(batch_size, -1, self.num_heads, self.head_dim)
-        v = self.v_linear(v).view(batch_size, -1, self.num_heads, self.head_dim)
-
-        # transpose to get dimensions batch_size * num_heads * sl * head_dim
-
-        k = k.transpose(1, 2).contiguous()
-        q = q.transpose(1, 2).contiguous()
-        v = v.transpose(1, 2).contiguous()
-
-        # Determine value outputs
-        values, attention_weights = scaled_dot_product(
-            q, k, v, mask=mask, dropout_module=self.dropout
-        )
-        values = values.permute(0, 2, 1, 3)  # [Batch, SeqLen, Head, Dims]
-        values = values.reshape(batch_size, -1, self.embed_dim)
-        output = self.out(values)
-
-        if return_attention:
-            return output, attention_weights
-        else:
-            return output
-
-
-class GroupNorm32(nn.GroupNorm):
-    def forward(self, x):
-        return super().forward(x.float()).type(x.dtype)
-
-
-def normalization(channels):
-    """
-    Make a standard normalization layer.
-
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
-    """
-    return GroupNorm32(32, channels)
-
-
 class AttentionBlock(nn.Module):
     """
     Attention for high dimensional data, such as images, 3D data, etc.
@@ -388,11 +406,11 @@ class AttentionBlock(nn.Module):
         self.channels = channels
         self.num_heads = num_heads
 
-        self.norm = normalization(channels)
+        self.norm = cus_layers.normalization(channels)
         self.qkv = cus_layers.Conv1dSame(
             channels, channels * 3, kernel_size=channels // 16, stride=1
         )
-        self.attention = QKVAttention()
+        self.attention = cus_layers.QKVAttention()
         self.proj_out = cus_layers.Conv1dSame(
             channels, channels, kernel_size=5, stride=1
         )
@@ -411,56 +429,10 @@ class AttentionBlock(nn.Module):
         return (x + h).reshape(b, c, *spatial)
 
 
-class QKVAttention(nn.Module):
-    """
-    A module which performs QKV attention.
-    """
-
-    def forward(self, qkv):
-        """
-        Apply QKV attention.
-
-        :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
-        :return: an [N x C x T] tensor after attention.
-        """
-        ch = torch.div(qkv.shape[1], 3, rounding_mode="floor")
-        # ch = qkv.shape[1] // 3
-        q, k, v = torch.split(qkv, ch, dim=1)
-        scale = 1 / torch.sqrt(torch.sqrt(ch))
-        weight = torch.einsum(
-            "bct,bcs->bts", q * scale, k * scale
-        )  # More stable with f16 than dividing afterwards
-        weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
-        return torch.einsum("bts,bcs->bct", weight, v)
-
-    @staticmethod
-    def count_flops(model, _x, y):
-        """
-        A counter for the `thop` package to count the operations in an
-        attention operation.
-
-        Meant to be used like:
-
-            macs, params = thop.profile(
-                model,
-                inputs=(inputs, timestamps),
-                custom_ops={QKVAttention: QKVAttention.count_flops},
-            )
-
-        """
-        b, c, *spatial = y[0].shape
-        num_spatial = int(np.prod(spatial))
-        # We perform two matmuls with the same number of ops.
-        # The first computes the weight matrix, the second computes
-        # the combination of the value vectors.
-        matmul_ops = 2 * b * (num_spatial**2) * c
-        model.total_ops += torch.DoubleTensor([matmul_ops])
-
-
 class AttentionEncodingBlock(nn.Module):
     """
     Attention for high dimensional data, such as images, 3D data, etc.
-    Attention + Conv1D
+    Attention + Linear + GELU + Linear
     """
 
     def __init__(self, channels, num_heads, dropout=0, name=None, **kwargs):
@@ -481,7 +453,7 @@ class AttentionEncodingBlock(nn.Module):
             nn.Linear(channels * 2, channels),
         )
 
-        self.norm = normalization(channels)
+        self.norm = cus_layers.normalization(channels)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
