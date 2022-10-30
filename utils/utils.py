@@ -203,7 +203,7 @@ def model_defaults():
         ema_decay=0.99,
         commitment_cost=0.25,
         model_type="hierarchical",
-        name="Compressor",
+        name="",
     )
 
 
@@ -347,8 +347,9 @@ def configure_args(args):
         f"-num_residual_blocks_{args.num_residual_blocks}-num_transformer_blocks_{args.num_transformer_blocks}"
     )
     if args.command == "train":
-        args.model_path = args.model_path + args.prefix_folder
-    args.name = args.name + args.model_path.rpartition("/")[-1]
+        args.model_path = args.model_path + f"-{args.model_type}-" + args.prefix_folder
+    if args.name == "":
+        args.name = args.model_type + "-" + args.model_path.rpartition("/")[-1]
 
 
 def get_checkpoint(args):
