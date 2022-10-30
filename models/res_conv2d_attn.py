@@ -1,10 +1,7 @@
 import torch
 from utils import logger
 from models import basemodel
-from models.custom_layers import (
-    vector_quantizer,
-    preprocessors,
-)
+from models.custom_layers import vector_quantizer, preprocessors, cus_blocks
 
 
 class VQCPVAE(basemodel.BaseModel):
@@ -25,10 +22,11 @@ class VQCPVAE(basemodel.BaseModel):
         dropout,
         ema_decay,
         commitment_cost,
+        model_type,
         name=None,
         **kwargs,
     ):
-        super().__init__(name=name, **kwargs)
+        super().__init__(model_type=model_type, name=name, **kwargs)
         if patch_depth <= 0:
             self.input_shape = [1, patch_channels, patch_size, patch_size]
         else:
@@ -44,6 +42,9 @@ class VQCPVAE(basemodel.BaseModel):
         self.vq_weight = 1.0
 
         self.data_preprocessor = preprocessors.IdentityDataProcessor()
+        self.pre_block = cus_blocks.PreBlock(
+            data_channels, pre_num_channels, name="pre_block"
+        )
         self.encoder = basemodel.Encoder(
             data_channels,
             pre_num_channels,
@@ -72,6 +73,9 @@ class VQCPVAE(basemodel.BaseModel):
             num_residual_blocks,
             name="Decoder",
         )
+        self.post_block = cus_blocks.PostBlock(
+            pre_num_channels, data_channels, name="post_block"
+        )
 
         if num_transformer_blocks > 0:
             self.forward_attention = basemodel.AttentionEncoder(
@@ -97,6 +101,7 @@ class VQCPVAE(basemodel.BaseModel):
     def _encode(self, x):
         """Encodes data."""
         x = self.data_preprocessor(x, normalize=1)
+        x = self.pre_block(x)
         y = self.encoder(x)
         y = self.forward_attention(y)
         y = self.final_conv_encoder(y)
@@ -107,6 +112,7 @@ class VQCPVAE(basemodel.BaseModel):
         y_hat = self.first_conv_decoder(quantized)
         y_hat = self.backward_attention(y_hat)
         x_hat = self.decoder(y_hat)
+        x_hat = self.post_block(x_hat)
         x_hat = self.data_preprocessor(x_hat, normalize=0)
         return x_hat
 
