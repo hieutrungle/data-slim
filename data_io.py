@@ -306,7 +306,7 @@ class DisjointDataGen(BaseDataGen):
         patch_size,
         data_shape,
         fillna_value=0,
-        shuffle=True,
+        shuffle=False,
         name=None,
         transform=None,
     ):
@@ -396,7 +396,7 @@ class OverlappingDataGen(BaseDataGen):
         data_shape,
         padding=True,
         fillna_value=0,
-        shuffle=True,
+        shuffle=False,
         name=None,
         transform=None,
     ):
