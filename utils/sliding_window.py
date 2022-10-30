@@ -105,7 +105,7 @@ class SlidingWindow:
             pad_dim = np.array([0, *self.get_padding(data.shape[1:-1]), 0])
             padded_shape = np.array(data.shape) + pad_dim
             pad_dim = self.calc_padding_dim(padded_shape, data.shape)
-            ds = np.pad(data, (pad_dim), mode="constant", constant_values=0)
+            ds = np.pad(data, (pad_dim), mode="wrap")
         else:
             ds = data
         return ds

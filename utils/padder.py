@@ -71,7 +71,7 @@ class BasePadder:
         Add paddings to the whole dataset (3d data)
         (B, len_x, len_y) -> (B, pad_len_x, pad_len_y)
         """
-        ds = np.pad(ds, (self.pad_dim), mode="constant", constant_values=0)
+        ds = np.pad(ds, (self.pad_dim), mode="wrap")
         return np.array(ds)
 
     def print_instance_attributes(self):
