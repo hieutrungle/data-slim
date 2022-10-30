@@ -5,7 +5,7 @@ import torch
 import argparse
 import netcdf_utils
 import data_io
-from models import res_conv2d_attn
+from models import res_conv2d_attn, hierachical_res_2d
 from utils import logger, utils
 import compression
 import train
@@ -28,10 +28,19 @@ def main():
 
     # Model Initialization
     start_time = time.perf_counter()
-    model = res_conv2d_attn.VQCPVAE(
-        **utils.args_to_dict(args, utils.model_defaults().keys())
-    )
+    if args.model_type.lower().find("hierachical") != -1:
+        model = hierachical_res_2d.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("res_1") != -1:
+        model = res_conv2d_attn.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    else:
+        raise ValueError("Invalid model type.")
+
     model = model.to(torch.device(DEVICE))
+    stats = None
     if args.data_dir != "":
         try:
             stats = utils.get_data_statistics(args.data_dir)
@@ -46,7 +55,7 @@ def main():
         except Exception as e:
             logger.log(f"No statistics file available at input_path: {args.input_path}")
             logger.error(e)
-    else:
+    if stats is None:
         raise ValueError("No statistics file available.")
     mean = stats["mean"]
     std = stats["std"]
@@ -58,7 +67,15 @@ def main():
     if args.verbose:
         logger.log(
             summary(
-                model, model.input_shape, col_width=30, depth=4, verbose=args.verbose
+                model,
+                model.input_shape,
+                depth=1,
+                col_names=(
+                    "input_size",
+                    "output_size",
+                    "num_params",
+                ),
+                verbose=args.verbose,
             )
         )
 
@@ -236,12 +253,6 @@ def decompress_loop(args, model, filenames, dataio):
             time_idx=i,
             verbose=args.verbose,
         )
-        # sys.exit()
-        # output_file = os.path.join(
-        #     output_path, filename.split("/")[-1].rpartition(".")[0] + ".f32"
-        # )
-
-        # compression.save_reconstructed(x_hat, output_file)
 
 
 def create_argparser():

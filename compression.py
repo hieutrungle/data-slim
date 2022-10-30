@@ -3,34 +3,44 @@ import os
 import numpy as np
 import os
 import json
-import copy
 import gc
 import time
 from utils import utils, logger
 from torch.utils.data import DataLoader
 import torch
-import gzip
-import matplotlib.pyplot as plt
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 IS_CHECKING_MEMORY = False
-BATCH_SIZE = 128
+BATCH_SIZE = 8
 
 
 def compress_step(model, x, batch_size=4):
     """Compress step."""
-
-    # make tf data for fast data loading
-
     x = DataLoader(x, batch_size=batch_size, shuffle=False)
-    tensor = []
-    model_divice = next(model.parameters()).device
-    for i, da in enumerate(x):
-        compressed = model.compress(da.to(model_divice).type(torch.float))
-        tensor.append(compressed[0].detach().cpu())
-    tensor = torch.cat(tensor, axis=0).cpu()
-    tensors = (tensor, *compressed[1:])
+    if model.model_type.lower().find("hierachical") != -1:
+        z_tensor, y_tensor = [], []
+        model_divice = next(model.parameters()).device
+        for i, da in enumerate(x):
+            compressed = model.compress(da.to(model_divice).type(torch.float))
+            y_tensor.append(compressed[0].detach().cpu())
+            z_tensor.append(compressed[1].detach().cpu())
+        y_tensor = torch.cat(y_tensor, axis=0).cpu()
+        z_tensor = torch.cat(z_tensor, axis=0).cpu()
+        tensors = (y_tensor, z_tensor, *compressed[2:])
+
+    elif model.model_type.lower().find("res_1") != -1:
+        tensor = []
+        model_divice = next(model.parameters()).device
+        for i, da in enumerate(x):
+            compressed = model.compress(da.to(model_divice).type(torch.float))
+            tensor.append(compressed[0].detach().cpu())
+        tensor = torch.cat(tensor, axis=0).cpu()
+        tensors = (tensor, *compressed[1:])
+
+    else:
+        raise ValueError("Invalid model type.")
+
     return tensors
 
 
@@ -81,22 +91,53 @@ def load_compressed(input_file):
 
 def decompress_step(model, tensors, batch_size=4):
     """Decompress step."""
-    y_shape = np.array(tensors[1])
-    num_hidden_tensor = int(np.prod(y_shape[:-1]) * batch_size)
-    # make data for fast data loading
-    y_quantized = DataLoader(
-        tensors[0].type(torch.int64),
-        batch_size=num_hidden_tensor,
-        shuffle=False,
-    )
-
-    x_hat = []
     model_divice = next(model.parameters()).device
-    for i, da in enumerate(y_quantized):
-        da = da.to(model_divice).type(torch.int64)
-        decompressed = model.decompress(da, *tensors[1:])
-        x_hat.append(decompressed.detach().cpu())
-    x_hat = torch.cat(x_hat, axis=0).cpu()
+    x_hat = []
+
+    if model.model_type.lower().find("hierachical") != -1:
+        z_shape = np.array(tensors[3])
+        num_hidden_z_tensor = int(np.prod(z_shape[:-1]) * batch_size)
+        # make data for fast data loading
+        z_quantized = DataLoader(
+            tensors[1].to(model_divice).type(torch.int64),
+            batch_size=num_hidden_z_tensor,
+            shuffle=False,
+        )
+
+        y_shape = np.array(tensors[2])
+        num_hidden_y_tensor = int(np.prod(y_shape[:-1]) * batch_size)
+        # make data for fast data loading
+        y_quantized = DataLoader(
+            tensors[0].to(model_divice).type(torch.int64),
+            batch_size=num_hidden_y_tensor,
+            shuffle=False,
+        )
+
+        for i, da in enumerate(zip(y_quantized, z_quantized)):
+            # da = da.to(model_divice).type(torch.int64)
+            decompressed = model.decompress(*da, *tensors[2:])
+            x_hat.append(decompressed.detach().cpu())
+        x_hat = torch.cat(x_hat, axis=0).cpu()
+
+    elif model.model_type.lower().find("res_1") != -1:
+        y_shape = np.array(tensors[1])
+        num_hidden_y_tensor = int(np.prod(y_shape[:-1]) * batch_size)
+        # make data for fast data loading
+        y_quantized = DataLoader(
+            tensors[0].to(model_divice).type(torch.int64),
+            batch_size=num_hidden_y_tensor,
+            shuffle=False,
+        )
+
+        for i, da in enumerate(y_quantized):
+            da = da.type(torch.int64)
+            decompressed = model.decompress(da, *tensors[1:])
+            x_hat.append(decompressed.detach().cpu())
+        x_hat = torch.cat(x_hat, axis=0).cpu()
+
+    else:
+        raise ValueError("Invalid model type.")
+
     return x_hat
 
 
