@@ -12,7 +12,7 @@ import torch
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 IS_CHECKING_MEMORY = False
-BATCH_SIZE = 8
+BATCH_SIZE = 128
 
 
 def compress_step(model, x, batch_size=4):
@@ -84,7 +84,7 @@ def save_compressed(output_file, tensors):
 
 
 def load_compressed(input_file):
-    with np.load(input_file) as f:
+    with np.load(input_file, allow_pickle=True) as f:
         tensors = [f[key] for key in f.files]
     return tensors
 
