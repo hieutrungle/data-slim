@@ -350,6 +350,7 @@ def configure_args(args):
         args.model_path = args.model_path + f"-{args.model_type}-" + args.prefix_folder
     if args.name == "":
         args.name = args.model_type + "-" + args.model_path.rpartition("/")[-1]
+    os.environ["BATCH_SIZE"] = str(args.batch_size)
 
 
 def get_checkpoint(args):

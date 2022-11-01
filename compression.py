@@ -12,7 +12,6 @@ import torch
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 IS_CHECKING_MEMORY = False
-BATCH_SIZE = 128
 
 
 def compress_step(model, x, batch_size=4):
@@ -50,7 +49,8 @@ def compress(model, x, mask=None, verbose=False):
         utils.check_memory("Before compression")
 
     start_time = time.perf_counter()
-    tensors = compress_step(model, x, batch_size=BATCH_SIZE)
+    batch_size = int(os.environ.get("BATCH_SIZE", "8"))
+    tensors = compress_step(model, x, batch_size=batch_size)
     encoding_time = time.perf_counter() - start_time
 
     if IS_CHECKING_MEMORY:
@@ -149,7 +149,8 @@ def decompress(model, tensors, mask=None, verbose=False):
         tensors = [torch.tensor(tensor) for tensor in tensors]
     if not isinstance(mask, torch.Tensor):
         mask = torch.tensor(mask)
-    x_hat = decompress_step(model, tensors, batch_size=BATCH_SIZE)
+    batch_size = int(os.environ.get("BATCH_SIZE", "8"))
+    x_hat = decompress_step(model, tensors, batch_size=batch_size)
     if mask is not None:
         x_hat = x_hat * mask
     if IS_CHECKING_MEMORY:
