@@ -230,7 +230,6 @@ def decompress_loop(args, model, filenames, dataio):
     metadata_filename = [f for f in filenames if f.find("metadata") != -1][0]
     filenames.remove(mask_filename)
     filenames.remove(metadata_filename)
-    filenames = sorted(filenames)
     ncfile = os.path.join(
         output_path,
         metadata_filename.split("/")[-1].rpartition("_")[0] + "-reconstruction.nc",
