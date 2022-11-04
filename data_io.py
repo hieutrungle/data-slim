@@ -13,6 +13,7 @@ import random
 from torchvision import transforms
 import torch
 import dask
+import copy
 
 dask.config.set(scheduler="synchronous")
 
@@ -45,7 +46,7 @@ class Dataio:
 
         # Train data loader
         logger.log(f"number of train_files: {len(train_files)}")
-        train_dataset = self.create_overlapping_generator(
+        train_dataset = self.create_train_generator(
             train_files, ds_name, fillna_value=fillna_value, name="train", shuffle=True
         )
         train_ds = self.get_data_loader(
@@ -105,6 +106,25 @@ class Dataio:
         self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = OverlappingDataGen(
+            filenames,
+            ds_name,
+            kernel_size=self.patch_size,
+            stride=self.patch_size - 8,
+            batch_size=self.batch_size,
+            patch_size=self.patch_size,
+            data_shape=self.data_shape,
+            fillna_value=fillna_value,
+            shuffle=shuffle,
+            name=name,
+            transform=self.transform,
+        )
+        self._update_parameters(data_gen, name=name)
+        return data_gen
+
+    def create_train_generator(
+        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
+    ):
+        data_gen = TrainOverlappingDataGen(
             filenames,
             ds_name,
             kernel_size=self.patch_size,
@@ -237,6 +257,7 @@ class BaseDataGen(data.Dataset):
         )
         if self.num_outputs is not None:
             message += f"; patch_shape: {self.num_outputs}x{self.patch_shape}"
+            message += f"; ds_name: {self.ds_name}"
 
         message += f")"
         return message
@@ -251,42 +272,7 @@ class BaseDataGen(data.Dataset):
         logger.info(message)
 
     def get_xarray_data(self, filenames, fillna_value=0):
-
-        ds = xr.open_mfdataset(
-            filenames,
-            combine="by_coords",
-            chunks={"time": 1, "nlat": 1200, "nlon": 1200},
-        )
-
-        # masks value = nan, otherwise 1
-        if len(ds["REGION_MASK"].shape) == 2:
-            masks = ds["REGION_MASK"].load()
-        elif len(ds["REGION_MASK"].shape) == 3:
-            masks = ds["REGION_MASK"][0].load()
-        else:
-            raise ValueError(
-                "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
-            )
-        # Based on data type, fillna_value is different
-        # TODO: change the value here, add mask_threshold to init args
-        if self.ds_name == "SST":
-            masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
-        if self.ds_name == "TEMP":
-            masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
-
-        if len(ds[self.ds_name].shape) == 4:
-            das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
-        elif len(ds[self.ds_name].shape) == 3:
-            das = ds[self.ds_name]
-        das = das * masks
-
-        # masks = 0 where das is nan, otherwise 1
-        masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
-        masks = masks.to_numpy()
-
-        das = das.fillna(fillna_value)
-
-        return (das, masks)
+        raise NotImplementedError
 
     def __len__(self):
         return self.num_patches
@@ -361,6 +347,44 @@ class DisjointDataGen(BaseDataGen):
             self.mask = self.mask[np.newaxis, ..., np.newaxis]
             self.mask = self.padder.pad_data(self.mask)
             self.mask = self.padder.split_data(self.mask)
+
+    def get_xarray_data(self, filenames, fillna_value=0):
+
+        ds = xr.open_mfdataset(
+            filenames,
+            combine="by_coords",
+            chunks={"time": 1, "nlat": 1200, "nlon": 1200},
+        )
+
+        # masks value = nan, otherwise 1
+        if len(ds["REGION_MASK"].shape) == 2:
+            masks = ds["REGION_MASK"].load()
+        elif len(ds["REGION_MASK"].shape) == 3:
+            masks = ds["REGION_MASK"][0].load()
+        else:
+            raise ValueError(
+                "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
+            )
+        # Based on data type, fillna_value is different
+        # TODO: change the value here, add mask_threshold to init args
+        if self.ds_name == "SST":
+            masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
+        if self.ds_name == "TEMP":
+            masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
+
+        if len(ds[self.ds_name].shape) == 4:
+            das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        elif len(ds[self.ds_name].shape) == 3:
+            das = ds[self.ds_name]
+        das = das * masks
+
+        # masks = 0 where das is nan, otherwise 1
+        masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
+        masks = masks.to_numpy()
+
+        das = das.fillna(fillna_value)
+
+        return (das, masks)
 
     def __getitem__(self, index):
         # return data and its mask
@@ -461,6 +485,46 @@ class OverlappingDataGen(BaseDataGen):
             mask = mask[np.newaxis, ..., np.newaxis]
             self.mask = self.sliding_window.pad_data(mask)
 
+    def get_xarray_data(self, filenames, fillna_value=0):
+
+        ds = xr.open_mfdataset(
+            filenames,
+            combine="by_coords",
+            chunks={"time": 1, "nlat": 1200, "nlon": 1200},
+        )
+
+        # masks value = nan, otherwise 1
+        if len(ds["REGION_MASK"].shape) == 2:
+            masks = ds["REGION_MASK"].load()
+        elif len(ds["REGION_MASK"].shape) == 3:
+            masks = ds["REGION_MASK"][0].load()
+        else:
+            raise ValueError(
+                "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
+            )
+        weighted_mask = copy.deepcopy(masks)
+
+        # Based on data type, fillna_value is different
+        # TODO: change the value here, add mask_threshold to init args
+        if self.ds_name == "SST":
+            masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
+        if self.ds_name == "TEMP":
+            masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
+
+        if len(ds[self.ds_name].shape) == 4:
+            das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        elif len(ds[self.ds_name].shape) == 3:
+            das = ds[self.ds_name]
+        das = das * masks
+
+        # masks = 0 where das is nan, otherwise 1
+        masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
+        masks = masks.to_numpy()
+
+        das = das.fillna(fillna_value)
+
+        return (das, masks)
+
     def __getitem__(self, index):
         # return data and its mask
         time_idx = index // self.num_patch_per_time_slice
@@ -485,18 +549,21 @@ class OverlappingDataGen(BaseDataGen):
         return window, window_mask
 
 
-class CompressionDataGen(BaseDataGen):
-    """Data generator for compression, which only get the data (mask is not included)."""
+class TrainOverlappingDataGen(BaseDataGen):
+    """Data generator for overlapping patches using weighted mask."""
 
     def __init__(
         self,
         filenames,
         ds_name,
+        kernel_size,
+        stride,
         batch_size,
         patch_size,
         data_shape,
+        padding=True,
         fillna_value=0,
-        shuffle=True,
+        shuffle=False,
         name=None,
         transform=None,
     ):
@@ -512,21 +579,32 @@ class CompressionDataGen(BaseDataGen):
             transform=transform,
         )
 
-        self.num_outputs = 1
-        if len(data_shape) == 4:
-            self.padder = padder.Padder2D(patch_size, data_shape)
-        elif len(data_shape) == 5:
-            self.padder = padder.Padder3D(patch_size, data_shape)
-        else:
-            raise ValueError("data shape must be of length 4 or 5.")
-
+        self.num_outputs = 2
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.ds = None
+        self.sliding_window = sw.SlidingWindow(
+            self.kernel_size, self.stride, padding=padding
+        )
+        self.coors = self.sliding_window.get_window_coors(data_shape)
+        num_windows = self.sliding_window.get_total_num_windows(data_shape[1:-1])
         self.on_epoch_end()
 
+        # Elliminate the windows that only contains masked values
+        tmp = []
+        for i in range(num_windows):
+            coor = self.sliding_window.get_coor_given_index(self.coors, i)
+            window_mask = self.sliding_window.get_window_with_coordinate(
+                self.weighted_mask, coor
+            )
+            if np.sum(window_mask) != 0.0:
+                tmp.append(coor)
+        self.coors = np.array(tmp)
+        num_windows = len(self.coors)
+
         self.num_time_slices = self.ds.shape[0]
-        self.num_patch_per_time_slice = (self.padder.padded_shape[1] // patch_size) * (
-            self.padder.padded_shape[2] // patch_size
-        )
-        self.num_patches = self.ds.shape[0] * self.num_patch_per_time_slice
+        self.num_patch_per_time_slice = num_windows
+        self.num_patches = self.num_time_slices * self.num_patch_per_time_slice
 
         num_batches = self.num_patches / batch_size
         self.num_batches = int(
@@ -540,30 +618,80 @@ class CompressionDataGen(BaseDataGen):
             else num_batch_per_time_slice + 1
         )
 
+    # implement sliding window
     def on_epoch_end(self):
         self.time_idx = -1
         self.da = None
         if self.ds == None or self.shuffle:
             random.shuffle(self.filenames)
-            (self.ds, self.mask) = self.get_xarray_data(
+            (self.ds, weighted_mask) = self.get_xarray_data(
                 self.filenames, self.fillna_value
             )
-            self.mask = self.mask[np.newaxis, ..., np.newaxis]
-            self.mask = self.padder.pad_data(self.mask)
-            self.mask = self.padder.split_data(self.mask)
+            weighted_mask = weighted_mask[np.newaxis, ..., np.newaxis]
+            self.weighted_mask = self.sliding_window.pad_data(weighted_mask)
+
+    def get_xarray_data(self, filenames, fillna_value=0):
+
+        ds = xr.open_mfdataset(
+            filenames,
+            combine="by_coords",
+            chunks={"time": 1, "nlat": 1200, "nlon": 1200},
+        )
+
+        # masks value = nan, otherwise 1
+        if len(ds["REGION_MASK"].shape) == 2:
+            masks = ds["REGION_MASK"].load()
+        elif len(ds["REGION_MASK"].shape) == 3:
+            masks = ds["REGION_MASK"][0].load()
+        else:
+            raise ValueError(
+                "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
+            )
+        weighted_mask = copy.deepcopy(masks)
+        weighted_mask = xr.where(weighted_mask == -14, 0.1, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == -13, 0.2, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == -1, 0.0, weighted_mask)
+        weighted_mask = xr.where(weighted_mask >= 8, 1.5, weighted_mask)
+        weighted_mask = xr.where(weighted_mask >= 3, 5, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == 2, 8, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == 1.5, 2, weighted_mask)
+        weighted_mask = weighted_mask[::-1, :]
+        weighted_mask = weighted_mask.to_numpy()
+
+        # Based on data type, fillna_value is different
+        if self.ds_name == "SST":
+            masks = xr.where(masks != -1, 1, np.nan)  # for SST dataset
+        if self.ds_name == "TEMP":
+            masks = xr.where(masks > 0, 1, np.nan)  # for volumetric TEMP
+
+        if len(ds[self.ds_name].shape) == 4:
+            das = ds[self.ds_name][:, 0, ...]  # (N, z_t, 2400, 3600)
+        elif len(ds[self.ds_name].shape) == 3:
+            das = ds[self.ds_name]
+        das = das * masks
+        das = das.fillna(fillna_value)
+
+        return (das, weighted_mask)
 
     def __getitem__(self, index):
-        # return data
+        # return data and its mask
         time_idx = index // self.num_patch_per_time_slice
         if time_idx > self.time_idx:
+
             self.time_idx = time_idx
             da = self.ds[time_idx]
             da = da.to_numpy()[::-1, :]
             da = da[np.newaxis, ..., np.newaxis]
-            da = self.padder.pad_data(da)
-            self.da = self.padder.split_data(da)
-        da_idx = index % self.num_patch_per_time_slice
-        sample = self.da[da_idx]
+            self.da = self.sliding_window.pad_data(da)
+
+        window_idx = index % self.num_patch_per_time_slice
+        window = self.sliding_window.get_window_with_coordinate(
+            self.da, self.coors[window_idx]
+        )
+        window_weighted_mask = self.sliding_window.get_window_with_coordinate(
+            self.weighted_mask, self.coors[window_idx]
+        )
         if self.transform:
-            sample = self.transform(sample)
-        return sample
+            window = self.transform(window)
+            window_weighted_mask = self.transform(window_weighted_mask)
+        return window, window_weighted_mask
