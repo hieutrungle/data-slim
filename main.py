@@ -176,6 +176,8 @@ def compress_loop(args, model, ds, dataio):
 
         # Save mask and stats and metadata
         if i == 0:
+            logger.log("Making metadata...")
+            meta_time = time.perf_counter()
             # Mask
             mask_path = os.path.join(output_path, "mask")
             compression.save_compressed(mask_path, [mask])
@@ -194,6 +196,9 @@ def compress_loop(args, model, ds, dataio):
                 logger.log(f"Saving metadata to {metadata_output_file}")
             netcdf_utils.create_dataset_with_only_metadata(
                 args.input_path, metadata_output_file, args.ds_name, args.verbose
+            )
+            logger.log(
+                f"Metadata completed in {time.perf_counter() - meta_time:0.4f} seconds"
             )
 
         if args.verbose:
@@ -237,6 +242,7 @@ def decompress_loop(args, model, filenames, dataio):
     shutil.copy(metadata_filename, ncfile)
 
     mask = compression.load_compressed(mask_filename)[0]
+    total_writing_time = 0
     for i, filename in enumerate(filenames):
         tensors = compression.load_compressed(filename)
         x_hat = compression.decompress(model, tensors, mask, args.verbose)
@@ -245,6 +251,7 @@ def decompress_loop(args, model, filenames, dataio):
         x_hat = dataio.revert_partition(x_hat)
         x_hat = x_hat[0, ::-1, :, 0]
 
+        writing_time = time.perf_counter()
         netcdf_utils.write_data_to_netcdf(
             ncfile,
             x_hat,
@@ -252,6 +259,8 @@ def decompress_loop(args, model, filenames, dataio):
             time_idx=i,
             verbose=args.verbose,
         )
+        total_writing_time += time.perf_counter() - writing_time
+    logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
 
 def create_argparser():
