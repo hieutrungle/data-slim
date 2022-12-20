@@ -502,7 +502,6 @@ class OverlappingDataGen(BaseDataGen):
             raise ValueError(
                 "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
             )
-        weighted_mask = copy.deepcopy(masks)
 
         # Based on data type, fillna_value is different
         # TODO: change the value here, add mask_threshold to init args
@@ -648,12 +647,12 @@ class TrainOverlappingDataGen(BaseDataGen):
                 "REGION_MASK must be of shape (nlat, nlon) or (time, nlat, nlon)."
             )
         weighted_mask = copy.deepcopy(masks)
-        weighted_mask = xr.where(weighted_mask == -14, 0.1, weighted_mask)
-        weighted_mask = xr.where(weighted_mask == -13, 0.2, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == -14, 0.7, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == -13, 0.8, weighted_mask)
         weighted_mask = xr.where(weighted_mask == -1, 0.0, weighted_mask)
         weighted_mask = xr.where(weighted_mask >= 8, 1.5, weighted_mask)
-        weighted_mask = xr.where(weighted_mask >= 3, 5, weighted_mask)
-        weighted_mask = xr.where(weighted_mask == 2, 8, weighted_mask)
+        weighted_mask = xr.where(weighted_mask >= 3, 3, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == 2, 5, weighted_mask)
         weighted_mask = xr.where(weighted_mask == 1.5, 2, weighted_mask)
         weighted_mask = weighted_mask[::-1, :]
         weighted_mask = weighted_mask.to_numpy()
