@@ -5,7 +5,7 @@ import torch
 import argparse
 import netcdf_utils
 import data_io
-from models import res_conv2d_attn, hierachical_res_2d
+from models import res_conv2d_attn, hierachical_res_2d, hier_mbconv
 from utils import logger, utils
 import compression
 import train
@@ -22,7 +22,7 @@ NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 def main():
     args = create_argparser().parse_args()
-    logger.configure(dir="./logs")
+    logger.configure(dir="./tmp_logs")
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
 
@@ -30,6 +30,10 @@ def main():
     start_time = time.perf_counter()
     if args.model_type.lower().find("hierachical") != -1:
         model = hierachical_res_2d.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("hier_mbconv") != -1:
+        model = hier_mbconv.VQCPVAE(
             **utils.args_to_dict(args, utils.model_defaults().keys())
         )
     elif args.model_type.lower().find("res_1") != -1:
@@ -69,7 +73,7 @@ def main():
             summary(
                 model,
                 model.input_shape,
-                depth=1,
+                depth=3,
                 col_names=(
                     "input_size",
                     "output_size",
