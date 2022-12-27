@@ -2,7 +2,7 @@ Machine Leanrning Reduced-order Model
 
 Training
 
-python main.py --command train --model_path ./saved_models/testing --data_dir ../data/tccs/ocean/SST_modified --patch_size 64 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --epochs 1 --batch_size 8 --model_type hierachical --verbose True --train_verbose True --local_test True
+python main.py --command train --model_path ./saved_models/testing_hier_mbconv --data_dir ../data/tccs/ocean/SST_modified --patch_size 64 --pre_num_channels 12 --num_channels 32 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --epochs 1 --batch_size 8 --model_type hier_mbconv_adaptive_2 --verbose True --train_verbose True --local_test True --lr 3e-4
 
 Resume
 
