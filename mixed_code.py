@@ -16,8 +16,9 @@ import glob
 import errno
 import matplotlib.pyplot as plt
 
-torch.manual_seed(43)
+torch.manual_seed(41)
 torch.use_deterministic_algorithms(True)
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = str(":4096:8")
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -29,25 +30,7 @@ def main():
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
 
-    # model = tmp_model.PreBlock(args.data_channels, args.pre_num_channels)
-    # model = tmp_model.PostBlock(args.pre_num_channels, args.data_channels)
-    # input_shape = [1, args.patch_channels, args.patch_size, args.patch_size]
-    # input_shape = [1, args.pre_num_channels, args.patch_size, args.patch_size]
-    # logger.log(
-    #     summary(
-    #         model,
-    #         input_shape,
-    #         depth=1,
-    #         col_names=(
-    #             "input_size",
-    #             "output_size",
-    #             "num_params",
-    #         ),
-    #         verbose=args.verbose,
-    #     )
-    # )
     input_shape = [1, args.patch_channels, args.patch_size, args.patch_size]
-    print(utils.args_to_dict(args, utils.model_defaults().keys()))
     model = hier_mbconv.VQCPVAE(
         **utils.args_to_dict(args, utils.model_defaults().keys())
     )
@@ -65,15 +48,20 @@ def main():
         )
     )
 
+    model.eval()
+
     a = torch.randn(input_shape)
+    a = a.to(DEVICE)
     outputs = model(a)
     print(outputs)
 
+    print(f"testing decompression")
     compressed = model.compress(a)
-    print(f"compressed: {compressed}")
+    # print(f"compressed: {compressed}")
     decoding_outputs = model.decompress(compressed)
     print(decoding_outputs)
     print(f"decoding_outputs.shape: {decoding_outputs.shape}")
+
     sys.exit()
 
     # Model Initialization
