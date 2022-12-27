@@ -1,6 +1,6 @@
 import torch
 from torch import nn, Tensor
-from utils import logger
+from utils import logger, utils
 from models import basemodel
 from models.custom_layers import (
     vector_quantizer,
@@ -292,7 +292,7 @@ class EncMBConv(nn.Module):
         self,
         cnf: MBConvConfig,
         stochastic_depth_prob: float,
-        norm_layer: Callable[..., nn.Module],
+        norm_layer: Callable[..., nn.Module] = None,
         se_layer: Callable[..., nn.Module] = SqueezeExcitation,
     ) -> None:
         super().__init__()
@@ -316,7 +316,7 @@ class EncMBConv(nn.Module):
                     cnf.input_channels,
                     expanded_channels,
                     kernel_size=1,
-                    # norm_layer=norm_layer,
+                    norm_layer=norm_layer,
                     activation_layer=activation_layer,
                 )
             )
@@ -329,7 +329,7 @@ class EncMBConv(nn.Module):
                 kernel_size=cnf.kernel,
                 stride=cnf.stride,
                 groups=expanded_channels,
-                # norm_layer=norm_layer,
+                norm_layer=norm_layer,
                 activation_layer=activation_layer,
             )
         )
@@ -350,7 +350,7 @@ class EncMBConv(nn.Module):
                 expanded_channels,
                 cnf.out_channels,
                 kernel_size=1,
-                # norm_layer=norm_layer,
+                norm_layer=norm_layer,
                 activation_layer=None,
             )
         )
@@ -374,7 +374,7 @@ class EncFusedMBConv(nn.Module):
         self,
         cnf: FusedMBConvConfig,
         stochastic_depth_prob: float,
-        norm_layer: Callable[..., nn.Module],
+        norm_layer: Callable[..., nn.Module] = None,
     ) -> None:
         super().__init__()
 
@@ -398,7 +398,7 @@ class EncFusedMBConv(nn.Module):
                     expanded_channels,
                     kernel_size=cnf.kernel,
                     stride=cnf.stride,
-                    # norm_layer=norm_layer,
+                    norm_layer=norm_layer,
                     activation_layer=activation_layer,
                 )
             )
@@ -409,7 +409,7 @@ class EncFusedMBConv(nn.Module):
                     expanded_channels,
                     cnf.out_channels,
                     kernel_size=1,
-                    # norm_layer=norm_layer,
+                    norm_layer=norm_layer,
                     activation_layer=None,
                 )
             )
@@ -420,7 +420,7 @@ class EncFusedMBConv(nn.Module):
                     cnf.out_channels,
                     kernel_size=cnf.kernel,
                     stride=cnf.stride,
-                    # norm_layer=norm_layer,
+                    norm_layer=norm_layer,
                     activation_layer=activation_layer,
                 )
             )
@@ -697,12 +697,12 @@ def _hierarchical_block(
             )
         )
 
-    model = nn.Sequential(*layers)
+    # model = nn.Sequential(*layers)
 
-    if weights is not None:
-        model.load_state_dict(weights.get_state_dict(progress=progress))
+    # if weights is not None:
+    #     model.load_state_dict(weights.get_state_dict(progress=progress))
 
-    return model
+    return layers
 
 
 def _model_conf(
@@ -713,25 +713,45 @@ def _model_conf(
     if arch.startswith("hierarchical"):
         inverted_residual_setting = {
             "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            # "encoder_0": [
+            #     FusedMBConvConfig(1, 3, 1, 24, 24, 2),
+            #     FusedMBConvConfig(4, 3, 2, 24, 48, 3),
+            #     FusedMBConvConfig(4, 3, 2, 48, 64, 3),
+            #     MBConvConfig(4, 3, 2, 64, 128, 3),
+            # ],
+            # "encoder_1": [
+            #     MBConvConfig(6, 3, 1, 128, 160, 2),
+            #     MBConvConfig(6, 3, 2, 160, 256, 2),
+            # ],
+            # "decoder_1": [
+            #     DecMBConvConfig(6, 3, 2, 256, 160, 2),
+            #     DecMBConvConfig(6, 3, 1, 160, 128, 2),
+            # ],
+            # "decoder_0": [
+            #     DecMBConvConfig(4, 3, 2, 128, 64, 3),
+            #     DecFusedMBConvConfig(4, 3, 2, 64, 48, 3),
+            #     DecFusedMBConvConfig(4, 3, 2, 48, 24, 3),
+            #     DecFusedMBConvConfig(1, 3, 1, 24, 24, 2),
+            # ],
             "encoder_0": [
-                FusedMBConvConfig(1, 3, 1, 24, 24, 2),
-                FusedMBConvConfig(4, 3, 2, 24, 48, 3),
-                FusedMBConvConfig(4, 3, 2, 48, 64, 3),
-                MBConvConfig(4, 3, 2, 64, 128, 3),
+                FusedMBConvConfig(1, 3, 1, 24, 24, 1),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                MBConvConfig(4, 3, 2, 64, 128, 1),
             ],
             "encoder_1": [
-                MBConvConfig(6, 3, 1, 128, 160, 2),
-                MBConvConfig(6, 3, 2, 160, 256, 2),
+                MBConvConfig(6, 3, 1, 128, 160, 1),
+                MBConvConfig(6, 3, 2, 160, 256, 1),
             ],
             "decoder_1": [
-                DecMBConvConfig(6, 3, 2, 256, 160, 2),
-                DecMBConvConfig(6, 3, 1, 160, 128, 2),
+                DecMBConvConfig(6, 3, 2, 256, 160, 1),
+                DecMBConvConfig(6, 3, 1, 160, 128, 1),
             ],
             "decoder_0": [
-                DecMBConvConfig(4, 3, 2, 128, 64, 3),
-                DecFusedMBConvConfig(4, 3, 2, 64, 48, 3),
-                DecFusedMBConvConfig(4, 3, 2, 48, 24, 3),
-                DecFusedMBConvConfig(1, 3, 1, 24, 24, 2),
+                DecMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 1),
             ],
             "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
         }
@@ -806,8 +826,8 @@ class VQCPVAE(basemodel.BaseModel):
         else:
             self.input_shape = [1, patch_channels, patch_size, patch_size, patch_size]
         inverted_residual_settings, last_channel = _model_conf(model_type)
-        print(f"len(inverted_residual_setting) = {len(inverted_residual_setting)}")
-        num_encoding_levels = (len(inverted_residual_setting) - 2) // 2
+        print(f"len(inverted_residual_settings) = {len(inverted_residual_settings)}")
+        self.num_encoding_levels = (len(inverted_residual_settings) - 2) // 2
 
         data_channels = self.input_shape[1]  # in_shape = (B, C, H, W)
         embedding_dim = latent_dim
@@ -819,81 +839,82 @@ class VQCPVAE(basemodel.BaseModel):
         self.vq_weight = 1.0
 
         self.data_preprocessor = preprocessors.IdentityDataProcessor()
-        self.final_conv_encoder_0 = cus_layers.Conv2dSame(
-            num_channels,
-            latent_dim,
-            kernel_size=3,
-            stride=1,
-        )
-        self.final_conv_encoder_1 = cus_layers.Conv2dSame(
-            num_channels * 2,
-            latent_dim,
-            kernel_size=3,
-            stride=1,
-        )
 
-        # Encoder and Decoder blocks
-        layers = []
-        for i, inverted_residual_setting in enumerate(
-            inverted_residual_settings.items()
-        ):
-            block_name, block_config = inverted_residual_setting
-            layers.append(
-                Block(
-                    block_config,
-                    norm_layer=None,
-                    **kwargs,
-                )
-            )
+        # Main blocks
+        encoding_blocks = _hierarchical_block(
+            inverted_residual_settings,
+            dropout=0.0,
+            weights=None,
+            progress=True,
+        )
+        self.pre_block = encoding_blocks[0]
+        self.encoders = nn.ModuleList(encoding_blocks[1 : self.num_encoding_levels + 1])
+        self.decoders = encoding_blocks[self.num_encoding_levels + 1 : -1]
+        self.decoders.reverse()
+        self.decoders = nn.ModuleList(self.decoders)
+        self.post_block = encoding_blocks[-1]
 
-        # Vector Quantizer layers
-        self.vq_layers = []
-        if ema_decay > 0.0:
-            for i in range(num_encoding_levels):
+        # Quantization blocks and connecting blocks
+        self.vq_layers = nn.ModuleList()
+        self.first_dec_combineds = nn.ModuleList()
+        self.final_conv_encoders = nn.ModuleList()
+        self.first_conv_decoders = []
+        for i in range(self.num_encoding_levels):
+            # Vector Quantizer layers
+
+            if ema_decay > 0.0:
                 self.vq_layers.append(
                     vector_quantizer.VectorQuantizerEMA(
                         num_embeddings, embedding_dim, commitment_cost, ema_decay
                     )
                 )
-            # self.vq_layer_0 = vector_quantizer.VectorQuantizerEMA(
-            #     num_embeddings, embedding_dim, commitment_cost, ema_decay
-            # )
-            # self.vq_layer_1 = vector_quantizer.VectorQuantizerEMA(
-            #     num_embeddings, embedding_dim, commitment_cost, ema_decay
-            # )
-        else:
-            for i in range(num_encoding_levels):
+            else:
                 self.vq_layers.append(
                     vector_quantizer.VectorQuantizer(
                         num_embeddings, embedding_dim, commitment_cost, ema_decay
                     )
                 )
-            # self.vq_layer_0 = vector_quantizer.VectorQuantizer(
-            #     num_embeddings, embedding_dim, commitment_cost
-            # )
-            # self.vq_layer_1 = vector_quantizer.VectorQuantizer(
-            #     num_embeddings, embedding_dim, commitment_cost
-            # )
+            # Final Convolutional Encoder layers
+            enc_conf = utils.get_nth_key(inverted_residual_settings, i + 1)
+            last_channel_enc = inverted_residual_settings[enc_conf][-1].out_channels
+            self.final_conv_encoders.append(
+                cus_layers.Conv2dSame(
+                    last_channel_enc,
+                    latent_dim,
+                    kernel_size=5,
+                    stride=1,
+                )
+            )
 
-        self.first_conv_decoder_yz = cus_layers.Conv2dTransposeSame(
-            latent_dim,
-            latent_dim,
-            kernel_size=5,
-            stride=2,
-        )
+            # First Convolutional Decoder layers
+            dec_conf = utils.get_nth_key(
+                inverted_residual_settings, i + self.num_encoding_levels + 1
+            )
+            first_channel_dec = inverted_residual_settings[dec_conf][0].input_channels
+            self.first_conv_decoders.append(
+                nn.ConvTranspose2d(
+                    latent_dim,
+                    first_channel_dec,
+                    kernel_size=5,
+                    padding=2,
+                    stride=1,
+                )
+            )
 
-        self.first_conv_decoder_1 = cus_layers.Conv2dTransposeSame(
-            latent_dim,
-            num_channels * 2,
-            kernel_size=3,
-            stride=1,
-        )
-        self.first_conv_decoder_0 = cus_layers.Conv2dTransposeSame(
-            latent_dim,
-            num_channels,
-            kernel_size=3,
-            stride=1,
-        )
+            # Combined layers of upper quantization outputs and lower quantization inputs
+            if i != self.num_encoding_levels - 1:
+                self.first_dec_combineds.append(
+                    nn.ConvTranspose2d(
+                        latent_dim,
+                        latent_dim,
+                        kernel_size=5,
+                        padding=2,
+                        output_padding=1,
+                        stride=2,
+                    )
+                )
+        self.first_conv_decoders.reverse()
+        self.first_conv_decoders = nn.ModuleList(self.first_conv_decoders)
 
         # if num_transformer_blocks > 0:
         #     self.forward_attention = basemodel.AttentionEncoder(
@@ -920,11 +941,67 @@ class VQCPVAE(basemodel.BaseModel):
         """Encodes data."""
         x = self.data_preprocessor(x, normalize=1)
         x = self.pre_block(x)
-        y = self.encoder_stack_0(x)
-        y_enc = self.final_conv_encoder_0(y)
-        z = self.encoder_stack_1(y)
-        z_enc = self.final_conv_encoder_1(z)
-        return y_enc, z_enc
+        enc_outputs = []
+        y = x
+        for i in range(self.num_encoding_levels):
+            y = self.encoders[i](y)
+            y = self.final_conv_encoders[i](y)
+            enc_outputs.append(y)
+        return enc_outputs
+
+    def _forward_imp(self, x):
+        # encodding
+        # x = self.data_preprocessor(x, normalize=1)
+        # x = self.pre_block(x)
+
+        # y = self.encoders[0](x)
+        # y = self.final_conv_encoders[0](y)
+
+        # z = self.encoders[1](y)
+        # z = self.final_conv_encoders[1](z)
+
+        # # quantization
+        # z_loss, z_quantized, perplexity, _ = self.vq_layers[1](z)
+
+        # yz = self.first_dec_combineds[0](z_quantized)
+        # y = yz + y
+        # y_loss, y_quantized, perplexity, _ = self.vq_layers[0](y)
+
+        # # decoding
+        # z_hat = self.first_conv_decoders[1](z_quantized)
+        # z_hat = self.decoders[1](z_hat)
+
+        # y_hat = self.first_conv_decoders[0](y_quantized)
+        # y_hat = z_hat + y_hat
+        # y_hat = self.decoders[0](y_hat)
+        # x_hat = self.post_block(y_hat)
+        # x_hat = self.data_preprocessor(x_hat, normalize=0)
+
+        # loss = z_loss + y_loss
+
+        #### loop version
+        # encoding
+        enc_outputs = self._encode(x)
+
+        # quantization & decoding
+        yz = 0
+        z_dec = 0
+        loss = 0
+        for i in reversed(range(self.num_encoding_levels)):
+            if i != self.num_encoding_levels - 1:
+                yz = self.first_dec_combineds[i - 1](yz)
+            y_loss, y_quantized, perplexity, _ = self.vq_layers[i](enc_outputs[i] + yz)
+            print(f"y_quantized: {y_quantized}")
+            y_hat = self.first_conv_decoders[i](y_quantized)
+            y_hat = self.decoders[i](y_hat + z_dec)
+            yz = y_quantized
+            z_dec = y_hat
+            loss += y_loss
+
+        x_hat = self.post_block(y_hat)
+        x_hat = self.data_preprocessor(x_hat, normalize=0)
+
+        return x_hat, loss
 
     def _decode(self, y_quantized, z_quantized):
         """Decodes data."""
@@ -937,14 +1014,17 @@ class VQCPVAE(basemodel.BaseModel):
         x_hat = self.data_preprocessor(x_hat, normalize=0)
         return x_hat
 
+    # def forward(self, x):
+    #     y, z = self._encode(x)
+    #     z_loss, z_quantized, z_perplexity, _ = self.vq_layer_1(z)
+    #     yz = self.first_conv_decoder_yz(z_quantized)
+    #     y = yz + y
+    #     y_loss, y_quantized, y_perplexity, _ = self.vq_layer_0(y)
+    #     x_hat = self._decode(y_quantized, z_quantized)
+    #     return y_loss + z_loss, x_hat, (y_perplexity, z_perplexity)
+
     def forward(self, x):
-        y, z = self._encode(x)
-        z_loss, z_quantized, z_perplexity, _ = self.vq_layer_1(z)
-        yz = self.first_conv_decoder_yz(z_quantized)
-        y = yz + y
-        y_loss, y_quantized, y_perplexity, _ = self.vq_layer_0(y)
-        x_hat = self._decode(y_quantized, z_quantized)
-        return y_loss + z_loss, x_hat, (y_perplexity, z_perplexity)
+        return self._forward_imp(x)
 
     def set_standardizer_layer(self, mean, variance, eta=1e-6):
         self.data_preprocessor = preprocessors.Standardizer(
@@ -954,42 +1034,121 @@ class VQCPVAE(basemodel.BaseModel):
             name="data_processor",
         )
 
+    # TODO: different values of y_quantized
     def compress(self, x):
         """Compresses data."""
-        y, z = self._encode(x)  # (B, C, H, W)
-        z = z.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
-        z_flattened = torch.reshape(z, [-1, self.latent_dim])
-        # (BxHxW, 1)
-        z_encoding_indices = self.vq_layer_1.get_code_indices(z_flattened)
-        # Preserve spatial shapes of both image and latents.
-        z_shape = z.shape[1:]
+        enc_outputs = self._encode(x)
 
-        z_quantized = self.vq_layer_1.get_quantized_from_indices(
-            z_encoding_indices, z_shape
-        )
-        yz = self.first_conv_decoder_yz(z_quantized)
-        y = yz + y
+        yz = 0
+        y_values = []
+        y_shapes = []
+        for i in reversed(range(self.num_encoding_levels)):
+            if i != self.num_encoding_levels - 1:
+                yz = self.first_dec_combineds[i - 1](yz)
+            y = enc_outputs[i] + yz
+            y = y.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+            y_flattened = torch.reshape(y, [-1, self.latent_dim])
+            # (BxHxW, 1)
+            y_encoding_indices = self.vq_layers[i].get_code_indices(y_flattened)
+            y_shape = y.shape[1:]
 
-        y = y.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
-        y_flattened = torch.reshape(y, [-1, self.latent_dim])
-        # (BxHxW, 1)
-        y_encoding_indices = self.vq_layer_0.get_code_indices(y_flattened)
-        # Preserve spatial shapes of both image and latents.
-        y_shape = y.shape[1:]
+            yz = self.vq_layers[i].get_quantized_from_indices(
+                y_encoding_indices, y_shape
+            )
+            y_values.append(y_encoding_indices)
+            y_shapes.append(y_shape)
 
-        return (y_encoding_indices, z_encoding_indices, y_shape, z_shape)
+        # y, z = self._encode(x)  # (B, C, H, W)
+        # z = z.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+        # z_flattened = torch.reshape(z, [-1, self.latent_dim])
+        # # (BxHxW, 1)
+        # z_encoding_indices = self.vq_layer_1.get_code_indices(z_flattened)
+        # # Preserve spatial shapes of both image and latents.
+        # z_shape = z.shape[1:]
 
-    def decompress(self, y_encoding_indices, z_encoding_indices, y_shape, z_shape):
+        # z_quantized = self.vq_layer_1.get_quantized_from_indices(
+        #     z_encoding_indices, z_shape
+        # )
+        # yz = self.first_conv_decoder_yz(z_quantized)
+        # y = yz + y
+
+        # y = y.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+        # y_flattened = torch.reshape(y, [-1, self.latent_dim])
+        # # (BxHxW, 1)
+        # y_encoding_indices = self.vq_layer_0.get_code_indices(y_flattened)
+        # # Preserve spatial shapes of both image and latents.
+        # y_shape = y.shape[1:]
+        y_values.reverse()
+        y_shapes.reverse()
+        outputs = y_values + y_shapes
+
+        return outputs
+
+    def decompress(self, outputs):
         """Decompresses an image."""
+        print(f"len(outputs): {len(outputs)}")
+        # quantization & decoding
+        y_values = outputs[: len(outputs) // 2]
+        y_shapes = outputs[len(outputs) // 2 :]
+        z_dec = 0
+        for i in reversed(range(self.num_encoding_levels)):
+            y_quantized = self.vq_layers[i].get_quantized_from_indices(
+                y_values[i], y_shapes[i]
+            )
+            print(f"y_quantized: {y_quantized}")
 
-        z_quantized = self.vq_layer_1.get_quantized_from_indices(
-            z_encoding_indices, z_shape
-        )
-        y_quantized = self.vq_layer_0.get_quantized_from_indices(
-            y_encoding_indices, y_shape
-        )
-        x_hat = self._decode(y_quantized, z_quantized)
+            y_hat = self.first_conv_decoders[i](y_quantized)
+            y_hat = self.decoders[i](y_hat + z_dec)
+            z_dec = y_hat
+
+        x_hat = self.post_block(y_hat)
+        x_hat = self.data_preprocessor(x_hat, normalize=0)
+
+        # z_quantized = self.vq_layer_1.get_quantized_from_indices(
+        #     z_encoding_indices, z_shape
+        # )
+        # y_quantized = self.vq_layer_0.get_quantized_from_indices(
+        #     y_encoding_indices, y_shape
+        # )
+        # x_hat = self._decode(y_quantized, z_quantized)
         return x_hat
+
+    # def compress(self, x):
+    #     """Compresses data."""
+    #     y, z = self._encode(x)  # (B, C, H, W)
+    #     z = z.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+    #     z_flattened = torch.reshape(z, [-1, self.latent_dim])
+    #     # (BxHxW, 1)
+    #     z_encoding_indices = self.vq_layer_1.get_code_indices(z_flattened)
+    #     # Preserve spatial shapes of both image and latents.
+    #     z_shape = z.shape[1:]
+
+    #     z_quantized = self.vq_layer_1.get_quantized_from_indices(
+    #         z_encoding_indices, z_shape
+    #     )
+    #     yz = self.first_conv_decoder_yz(z_quantized)
+    #     y = yz + y
+
+    #     y = y.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
+    #     y_flattened = torch.reshape(y, [-1, self.latent_dim])
+    #     # (BxHxW, 1)
+    #     y_encoding_indices = self.vq_layer_0.get_code_indices(y_flattened)
+    #     # Preserve spatial shapes of both image and latents.
+    #     y_shape = y.shape[1:]
+
+    #     return (y_encoding_indices, z_encoding_indices, y_shape, z_shape)
+
+    # def decompress(self, y_encoding_indices, z_encoding_indices, y_shape, z_shape):
+    #     """Decompresses an image."""
+
+    #     z_quantized = self.vq_layer_1.get_quantized_from_indices(
+    #         z_encoding_indices, z_shape
+    #     )
+    #     y_quantized = self.vq_layer_0.get_quantized_from_indices(
+    #         y_encoding_indices, y_shape
+    #     )
+    #     x_hat = self._decode(y_quantized, z_quantized)
+    #     return x_hat
 
 
 # class VQCPVAE(basemodel.BaseModel):
