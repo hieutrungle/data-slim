@@ -651,8 +651,8 @@ class TrainOverlappingDataGen(BaseDataGen):
         weighted_mask = xr.where(weighted_mask == -13, 0.8, weighted_mask)
         weighted_mask = xr.where(weighted_mask == -1, 0.0, weighted_mask)
         weighted_mask = xr.where(weighted_mask >= 8, 1.5, weighted_mask)
-        weighted_mask = xr.where(weighted_mask >= 3, 3, weighted_mask)
-        weighted_mask = xr.where(weighted_mask == 2, 5, weighted_mask)
+        weighted_mask = xr.where(weighted_mask >= 3, 2.5, weighted_mask)
+        weighted_mask = xr.where(weighted_mask == 2, 3, weighted_mask)
         weighted_mask = xr.where(weighted_mask == 1.5, 2, weighted_mask)
         weighted_mask = weighted_mask[::-1, :]
         weighted_mask = weighted_mask.to_numpy()
