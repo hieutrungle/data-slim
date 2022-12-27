@@ -29,6 +29,7 @@ from torchvision.models._utils import (
     handle_legacy_interface,
 )
 import sys
+import os
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -710,7 +711,12 @@ def _model_conf(
     **kwargs: Any,
 ) -> Tuple[Sequence[Union[MBConvConfig, FusedMBConvConfig]], Optional[int]]:
     inverted_residual_setting: Sequence[Union[MBConvConfig, FusedMBConvConfig]]
-    if arch.startswith("hierarchical"):
+    num_channels = int(os.environ.get("NUM_CHANNELS", "64"))
+    pre_num_channels = int(os.environ.get("PRE_NUM_CHANNELS", "32"))
+    assert (
+        num_channels > pre_num_channels * 2
+    ), "num_channels should be larger than pre_num_channels*2"
+    if arch.startswith("hier_mbconv_3"):
         inverted_residual_setting = {
             "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
             "encoder_0": [
@@ -723,14 +729,14 @@ def _model_conf(
                 MBConvConfig(6, 3, 1, 128, 160, 2),
                 MBConvConfig(6, 3, 2, 160, 256, 2),
             ],
-            # "encoder_2": [
-            #     MBConvConfig(6, 3, 1, 256, 320, 1),
-            #     MBConvConfig(6, 3, 2, 320, 512, 1),
-            # ],
-            # "decoder_2": [
-            #     DecMBConvConfig(6, 3, 1, 512, 320, 1),
-            #     DecMBConvConfig(6, 3, 2, 320, 256, 1),
-            # ],
+            "encoder_2": [
+                MBConvConfig(6, 3, 1, 256, 320, 1),
+                MBConvConfig(6, 3, 2, 320, 512, 1),
+            ],
+            "decoder_2": [
+                DecMBConvConfig(6, 3, 1, 512, 320, 1),
+                DecMBConvConfig(6, 3, 2, 320, 256, 1),
+            ],
             "decoder_1": [
                 DecMBConvConfig(6, 3, 2, 256, 160, 2),
                 DecMBConvConfig(6, 3, 1, 160, 128, 2),
@@ -743,10 +749,133 @@ def _model_conf(
             ],
             "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
         }
-        last_channel = 10
+    elif arch.startswith("hier_mbconv_2"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, 24, 24, 2),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 3),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 3),
+                MBConvConfig(4, 3, 2, 64, 128, 3),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 1, 128, 160, 2),
+                MBConvConfig(6, 3, 2, 160, 256, 2),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, 256, 160, 2),
+                DecMBConvConfig(6, 3, 1, 160, 128, 2),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, 128, 64, 3),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 3),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 3),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 2),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_1"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, 24, 24, 2),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 3),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 3),
+                MBConvConfig(4, 3, 2, 64, 128, 3),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, 128, 64, 3),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 3),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 3),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 2),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+    if arch.startswith("hier_mbconv_adaptive_3"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, pre_num_channels, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels, pre_num_channels * 2, 3),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels * 2, num_channels, 3),
+                MBConvConfig(4, 3, 2, num_channels, num_channels * 2, 3),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 1, num_channels * 2, num_channels * 3, 2),
+                MBConvConfig(6, 3, 2, num_channels * 3, num_channels * 4, 2),
+            ],
+            "encoder_2": [
+                MBConvConfig(6, 3, 1, num_channels * 4, num_channels * 6, 1),
+                MBConvConfig(6, 3, 2, num_channels * 6, num_channels * 8, 1),
+            ],
+            "decoder_2": [
+                DecMBConvConfig(6, 3, 1, num_channels * 8, num_channels * 6, 1),
+                DecMBConvConfig(6, 3, 2, num_channels * 6, num_channels * 4, 1),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, num_channels * 4, num_channels * 3, 2),
+                DecMBConvConfig(6, 3, 1, num_channels * 3, num_channels * 2, 2),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, num_channels * 2, num_channels, 3),
+                DecFusedMBConvConfig(4, 3, 2, num_channels, pre_num_channels * 2, 3),
+                DecFusedMBConvConfig(
+                    4, 3, 2, pre_num_channels * 2, pre_num_channels, 3
+                ),
+                DecFusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, pre_num_channels, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_adaptive_2"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, pre_num_channels, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels, pre_num_channels * 2, 3),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels * 2, num_channels, 3),
+                MBConvConfig(4, 3, 2, num_channels, num_channels * 2, 3),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 1, num_channels * 2, num_channels * 3, 2),
+                MBConvConfig(6, 3, 2, num_channels * 3, num_channels * 4, 2),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, num_channels * 4, num_channels * 3, 2),
+                DecMBConvConfig(6, 3, 1, num_channels * 3, num_channels * 2, 2),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, num_channels * 2, num_channels, 3),
+                DecFusedMBConvConfig(4, 3, 2, num_channels, pre_num_channels * 2, 3),
+                DecFusedMBConvConfig(
+                    4, 3, 2, pre_num_channels * 2, pre_num_channels, 3
+                ),
+                DecFusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, pre_num_channels, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_adaptive_1"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, pre_num_channels, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels, pre_num_channels * 2, 3),
+                FusedMBConvConfig(4, 3, 2, pre_num_channels * 2, num_channels, 3),
+                MBConvConfig(4, 3, 2, num_channels, num_channels * 2, 3),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, num_channels * 2, num_channels, 3),
+                DecFusedMBConvConfig(4, 3, 2, num_channels, pre_num_channels * 2, 3),
+                DecFusedMBConvConfig(
+                    4, 3, 2, pre_num_channels * 2, pre_num_channels, 3
+                ),
+                DecFusedMBConvConfig(1, 3, 1, pre_num_channels, pre_num_channels, 2),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, pre_num_channels, 1, 1)],
+        }
     else:
         raise ValueError(f"Unsupported model type {arch}")
 
+    last_channel = 10
     return inverted_residual_setting, last_channel
 
 
@@ -776,7 +905,7 @@ def hierarchical_model(
     """
     # weights = EfficientNet_V2_S_Weights.verify(weights)
 
-    inverted_residual_setting, last_channel = _model_conf("hierarchical")
+    inverted_residual_setting, last_channel = _model_conf("hier_mbconv")
     return _hierarchical_block(
         inverted_residual_setting,
         0.0,
@@ -804,7 +933,7 @@ class VQCPVAE(basemodel.BaseModel):
         dropout,
         ema_decay,
         commitment_cost,
-        model_type="hierarchical",
+        model_type="hier_mbconv_2",
         name=None,
         **kwargs,
     ):
@@ -814,16 +943,12 @@ class VQCPVAE(basemodel.BaseModel):
         else:
             self.input_shape = [1, patch_channels, patch_size, patch_size, patch_size]
         inverted_residual_settings, last_channel = _model_conf(model_type)
-        print(f"len(inverted_residual_settings) = {len(inverted_residual_settings)}")
         self.num_encoding_levels = (len(inverted_residual_settings) - 2) // 2
 
         data_channels = self.input_shape[1]  # in_shape = (B, C, H, W)
-        embedding_dim = latent_dim
-        self.pre_num_channels = pre_num_channels
-        self.num_channels = num_channels
+        self.embedding_dim = latent_dim
         self.latent_dim = latent_dim
         self.num_embeddings = num_embeddings
-        self.num_residual_blocks = num_residual_blocks
         self.vq_weight = 1.0
 
         self.data_preprocessor = preprocessors.IdentityDataProcessor()
@@ -854,7 +979,7 @@ class VQCPVAE(basemodel.BaseModel):
                 self.vq_layers.append(
                     vector_quantizer.VectorQuantizerEMA(
                         num_embeddings,
-                        embedding_dim,
+                        self.embedding_dim,
                         commitment_cost,
                         ema_decay,
                         name=f"vq_{i}",
@@ -864,7 +989,7 @@ class VQCPVAE(basemodel.BaseModel):
                 self.vq_layers.append(
                     vector_quantizer.VectorQuantizer(
                         num_embeddings,
-                        embedding_dim,
+                        self.embedding_dim,
                         commitment_cost,
                         ema_decay,
                         name=f"vq_{i}",
@@ -967,7 +1092,7 @@ class VQCPVAE(basemodel.BaseModel):
         x_hat = self.post_block(y_hat)
         x_hat = self.data_preprocessor(x_hat, normalize=0)
 
-        return x_hat, loss
+        return loss, x_hat, perplexity
 
     def forward(self, x):
         return self._forward_imp(x)
@@ -1031,49 +1156,5 @@ class VQCPVAE(basemodel.BaseModel):
         return x_hat
 
 
-class TmpArgs:
-    command = "train"
-    data_dir = "../data/tccs/ocean/SST_modified"
-    ds_name = "SST"
-    model_path = "./saved_models/hierachical-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0"
-    use_fp16 = False
-    verbose = True
-    resume = ""
-    iter = -1
-    local_test = False
-    input_path = ""
-    output_path = ""
-    patch_size = 64
-    patch_depth = -1
-    patch_channels = 1
-    pre_num_channels = 32
-    num_channels = 64
-    latent_dim = 128
-    num_embeddings = 256
-    num_residual_blocks = 3
-    num_transformer_blocks = 0
-    num_heads = 4
-    dropout = 0.0
-    ema_decay = 0.99
-    commitment_cost = 0.25
-    model_type = "hierachical"
-    name = "hierachical-hierachical-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0"
-    epochs = 50
-    lr = 0.0004
-    warm_up_portion = 0.15
-    weight_decay = 0.0001
-    log_interval = 2500
-    save_interval = 10
-    train_verbose = False
-    data_height = 2400
-    data_width = 3600
-    data_depth = -1
-    data_channels = 1
-    batch_size = 128
-    data_shape = (1, 2400, 3600, 1)
-    prefix_folder = "-patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0"
-
-
 if __name__ == "__main__":
-    args = TmpArgs()
     pass
