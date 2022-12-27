@@ -351,6 +351,8 @@ def configure_args(args):
     if args.name == "":
         args.name = args.model_type + "-" + args.model_path.rpartition("/")[-1]
     os.environ["BATCH_SIZE"] = str(args.batch_size)
+    os.environ["NUM_CHANNELS"] = str(args.num_channels)
+    os.environ["PRE_NUM_CHANNELS"] = str(args.pre_num_channels)
 
 
 def get_checkpoint(args):
