@@ -5,7 +5,7 @@ import torch
 import argparse
 import netcdf_utils
 import data_io
-from models import res_conv2d_attn, hierachical_res_2d, hier_mbconv
+from models import hier_mbconv, res_conv2d_attn, hierachical_res_2d
 from utils import logger, utils
 import compression
 import train
@@ -15,6 +15,10 @@ from pathlib import Path
 import glob
 import errno
 import matplotlib.pyplot as plt
+
+torch.manual_seed(41)
+torch.use_deterministic_algorithms(True)
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = str(":4096:8")
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -26,14 +30,44 @@ def main():
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
 
+    input_shape = [1, args.patch_channels, args.patch_size, args.patch_size]
+    model = hier_mbconv.VQCPVAE(
+        **utils.args_to_dict(args, utils.model_defaults().keys())
+    )
+    logger.log(
+        summary(
+            model,
+            input_shape,
+            depth=3,
+            col_names=(
+                "input_size",
+                "output_size",
+                "num_params",
+            ),
+            verbose=args.verbose,
+        )
+    )
+
+    model.eval()
+
+    a = torch.randn(input_shape)
+    a = a.to(DEVICE)
+    outputs = model(a)
+    print(outputs)
+
+    print(f"testing decompression")
+    compressed = model.compress(a)
+    # print(f"compressed: {compressed}")
+    decoding_outputs = model.decompress(compressed)
+    print(decoding_outputs)
+    print(f"decoding_outputs.shape: {decoding_outputs.shape}")
+
+    sys.exit()
+
     # Model Initialization
     start_time = time.perf_counter()
     if args.model_type.lower().find("hierachical") != -1:
         model = hierachical_res_2d.VQCPVAE(
-            **utils.args_to_dict(args, utils.model_defaults().keys())
-        )
-    elif args.model_type.lower().find("hier_mbconv") != -1:
-        model = hier_mbconv.VQCPVAE(
             **utils.args_to_dict(args, utils.model_defaults().keys())
         )
     elif args.model_type.lower().find("res_1") != -1:
@@ -73,7 +107,7 @@ def main():
             summary(
                 model,
                 model.input_shape,
-                depth=3,
+                depth=1,
                 col_names=(
                     "input_size",
                     "output_size",

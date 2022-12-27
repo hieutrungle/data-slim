@@ -351,6 +351,8 @@ def configure_args(args):
     if args.name == "":
         args.name = args.model_type + "-" + args.model_path.rpartition("/")[-1]
     os.environ["BATCH_SIZE"] = str(args.batch_size)
+    os.environ["NUM_CHANNELS"] = str(args.num_channels)
+    os.environ["PRE_NUM_CHANNELS"] = str(args.pre_num_channels)
 
 
 def get_checkpoint(args):
@@ -458,3 +460,18 @@ def save_reconstruction(x, x_hat, file_name, output_path=None):
     # Closes all the figure windows.
     plt.close("all")
     gc.collect()
+
+
+def get_first_key(dictionary):
+    for key in dictionary:
+        return key
+    raise IndexError
+
+
+def get_nth_key(dictionary, n=0):
+    if n < 0:
+        n += len(dictionary)
+    for i, key in enumerate(dictionary.keys()):
+        if i == n:
+            return key
+    raise IndexError("dictionary index out of range")

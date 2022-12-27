@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, commitment_cost=0.25):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost=0.25, name=None):
         """Return a vector quantized data based on distance criteria.
         Quantization with one hot encoding and a learnable Embedding table
         """
@@ -12,6 +12,7 @@ class VectorQuantizer(nn.Module):
 
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
+        self.name = name
 
         self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
         self._embedding.weight.data.uniform_(
@@ -108,9 +109,11 @@ class VectorQuantizerEMA(nn.Module):
         commitment_cost=0.25,
         decay=0.99,
         epsilon=1e-5,
+        name=None,
     ):
         super().__init__()
 
+        self.name = name
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
 
