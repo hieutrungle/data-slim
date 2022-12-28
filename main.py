@@ -21,7 +21,7 @@ NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 
 def main():
-    args = create_argparser().parse_args()
+    args = create_argparser()
     logger.configure(dir="./tmp_logs")
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
@@ -287,16 +287,28 @@ def create_argparser():
     defaults.update(utils.data_defaults())
     parser = argparse.ArgumentParser()
     utils.add_dict_to_argparser(parser, defaults)
+    args = parser.parse_args()
 
-    if defaults["command"].lower() in ["compress", "decompress"]:
-        if defaults["input"] == "":
-            raise ValueError("Must specify an input file.")
-        if defaults["output"] == "":
-            if defaults["command"].lower() == "compress":
-                defaults["output"] = defaults["input"] + ".tfci"
-            elif defaults["command"].lower() == "decompress":
-                defaults["output"] = defaults["input"] + ".f32"
-    return parser
+    if args.command.lower() in ["compress", "decompress"]:
+        print(f"Command: {args.command}")
+        if args.input_path == "":
+            raise ValueError("Must specify an input path.")
+        if args.output_path == "":
+            if args.command.lower() == "compress":
+                args.output_path = os.path.join(
+                    "outputs", args.input_path.rpartition(".")[0] + "_compression"
+                )
+            elif args.command.lower() == "decompress":
+                args.output_path = os.path.join(
+                    "outputs", args.input_path.rpartition(".")[0] + "_decompression"
+                )
+    elif args.command.lower() in ["get_data"]:
+        args.top_right_x = 0
+        args.top_right_y = 0
+        args.bottom_left_x = 0
+        args.bottom_left_y = 0
+
+    return args
 
 
 if __name__ == "__main__":
