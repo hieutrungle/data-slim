@@ -15,6 +15,7 @@ from pathlib import Path
 import glob
 import errno
 import matplotlib.pyplot as plt
+import data_retrival
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
@@ -25,6 +26,8 @@ def main():
     logger.configure(dir="./tmp_logs")
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
+    logger.log(f"NUM_GPUS: {NUM_GPUS}")
+    logger.log(f"DEVICE: {DEVICE}")
 
     # Model Initialization
     start_time = time.perf_counter()
@@ -160,10 +163,14 @@ def main():
             logger.log(
                 f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
             )
-
+    elif args.command == "get_data":
+        top_rights = (args.top_right_x, args.top_right_y)
+        bottom_lefts = (args.bottom_left_x, args.bottom_left_y)
+        times = (args.start_time, args.end_time)
+        data_retrival.get_data(top_rights, bottom_lefts, times, args.output_path)
     else:
         raise ValueError(
-            f"Unknown command: {args.command}. Options: train, compress, decompress."
+            f"Unknown command: {args.command}. Options: train, compress, decompress, get_data."
         )
 
 
@@ -290,7 +297,6 @@ def create_argparser():
     args = parser.parse_args()
 
     if args.command.lower() in ["compress", "decompress"]:
-        print(f"Command: {args.command}")
         if args.input_path == "":
             raise ValueError("Must specify an input path.")
         if args.output_path == "":
@@ -303,6 +309,8 @@ def create_argparser():
                     "outputs", args.input_path.rpartition(".")[0] + "_decompression"
                 )
     elif args.command.lower() in ["get_data"]:
+        args.start_time = 0
+        args.end_time = 0
         args.top_right_x = 0
         args.top_right_y = 0
         args.bottom_left_x = 0
