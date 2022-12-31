@@ -208,6 +208,9 @@ class Dataio:
 
     def get_training_parameters(self):
         return self.params
+    
+    def get_num_pad_tiles(self):
+        return self.padder.num_pad_tiles
 
     def log_training_parameters(self):
         message = "\n"
