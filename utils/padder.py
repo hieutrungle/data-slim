@@ -10,6 +10,7 @@ class BasePadder:
         self.padded_shape = ()
         self.patch_size = patch_size
         self.original_shape = original_shape
+        self.num_pad_tiles = []
         self.padded_shape = self.calculate_padded_data_shape(self.original_shape)
         self.pad_dim = self.calculate_padding_dim(
             self.padded_shape, self.original_shape
@@ -42,6 +43,14 @@ class BasePadder:
             self.pad_dim = self.calculate_padding_dim(
                 self.padded_shape, self.original_shape
             )
+            
+    @property
+    def num_pad_tiles(self):
+        return self._num_pad_tiles
+    
+    @num_pad_tiles.setter
+    def num_pad_tiles(self, value):
+        self._num_pad_tiles = value
 
     def calculate_num_tiles(self, total_length, patch_size):
         num_tiles = total_length // patch_size
@@ -52,8 +61,10 @@ class BasePadder:
     def calculate_padded_data_shape(self, data_shape):
         """Calculate data shape after padding"""
         padded_shape = [data_shape[0]]
+        self.num_pad_tiles = []
         for l in data_shape[1:-1]:
             num_tiles = self.calculate_num_tiles(l, self.patch_size)
+            self.num_pad_tiles.append(num_tiles)
             padded_shape.append(num_tiles * self.patch_size)
         padded_shape.append(data_shape[-1])
         return tuple(padded_shape)
