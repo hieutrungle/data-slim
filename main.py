@@ -121,7 +121,11 @@ def main():
             dataio=dataio,
         )
 
-    elif args.command == "compress" or args.command == "decompress":
+    elif (
+        args.command == "compress"
+        or args.command == "decompress"
+        or args.command == "get_data"
+    ):
 
         # Load model weights.
         model, is_weight_loaded = utils.load_model_with_checkpoint(
@@ -151,23 +155,35 @@ def main():
                 f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
             )
 
+        # elif args.command == "decompress":
         else:
             # Load compressed data (mask included)
             filenames = utils.get_filenames(args.input_path, postfix=".npz")
+
+            # If command is get_data, we only select the files that are within the specified time and space range
+            if args.command == "get_data":
+                lower_pos_x = min(args.start_pos_x, args.end_pos_x)
+                higher_pos_x = max(args.start_pos_x, args.end_pos_x)
+                lower_pos_y = min(args.start_pos_y, args.end_pos_y)
+                higher_pos_y = max(args.start_pos_y, args.end_pos_y)
+                times = (args.start_time, args.end_time)
+                lower_pos = (lower_pos_x, lower_pos_y)
+                upper_pos = (higher_pos_x, higher_pos_y)
+                filenames = data_retrival.get_desired_filenames(filenames, times)
             metadata_file = utils.get_filenames(args.input_path, postfix=".nc")
             filenames.extend(metadata_file)
+
             logger.log(f"Decompressing...")
             start_time = time.perf_counter()
-            decompress_loop(args, model, filenames, dataio)
-            logger.info(f"Compression completed!")
+            if args.command == "decompress":
+                decompress_loop(args, model, filenames, dataio)
+            else:
+                get_data(args, model, filenames, dataio, lower_pos, upper_pos)
+            logger.info(f"Decompression completed!")
             logger.log(
-                f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
+                f"Total decompression time: {time.perf_counter() - start_time:0.4f} seconds"
             )
-    elif args.command == "get_data":
-        top_rights = (args.top_right_x, args.top_right_y)
-        bottom_lefts = (args.bottom_left_x, args.bottom_left_y)
-        times = (args.start_time, args.end_time)
-        data_retrival.get_data(top_rights, bottom_lefts, times, args.output_path)
+
     else:
         raise ValueError(
             f"Unknown command: {args.command}. Options: train, compress, decompress, get_data."
@@ -274,6 +290,50 @@ def decompress_loop(args, model, filenames, dataio):
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
 
+def get_data(args, model, filenames, dataio, lower_pos, upper_pos):
+    if args.output_path is None:
+        output_path = os.path.join(
+            "./outputs",
+            "get_data_" + "".join(args.model_path.split("/")[-3]),
+        )
+    else:
+        output_path = args.output_path
+    utils.mkdir_if_not_exist(output_path)
+
+    mask_filename = [f for f in filenames if f.find("mask") != -1][0]
+    metadata_filename = [f for f in filenames if f.find("metadata") != -1][0]
+    filenames.remove(mask_filename)
+    filenames.remove(metadata_filename)
+    ncfile = os.path.join(
+        output_path,
+        metadata_filename.split("/")[-1].rpartition("_")[0] + "-reconstruction.nc",
+    )
+    shutil.copy(metadata_filename, ncfile)
+    mask = compression.load_compressed(mask_filename)[0]
+    total_writing_time = 0
+    for i, filename in enumerate(filenames):
+        tensors = compression.load_compressed(filename)
+        print(f"len tensors: {len(tensors)}")
+        # print(f"tensors: {tensors}")
+        sys.exit()
+        x_hat = compression.decompress(model, tensors, mask, args.verbose)
+        x_hat = x_hat * mask
+        x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+        x_hat = dataio.revert_partition(x_hat)
+        x_hat = x_hat[0, ::-1, :, 0]
+
+        writing_time = time.perf_counter()
+        netcdf_utils.write_data_to_netcdf(
+            ncfile,
+            x_hat,
+            args.ds_name,
+            time_idx=i,
+            verbose=args.verbose,
+        )
+        total_writing_time += time.perf_counter() - writing_time
+    logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
+
+
 def create_argparser():
     """Parses command line arguments."""
     defaults = dict(
@@ -309,12 +369,13 @@ def create_argparser():
                     "outputs", args.input_path.rpartition(".")[0] + "_decompression"
                 )
     elif args.command.lower() in ["get_data"]:
-        args.start_time = 0
-        args.end_time = 0
-        args.top_right_x = 0
-        args.top_right_y = 0
-        args.bottom_left_x = 0
-        args.bottom_left_y = 0
+
+        args.start_time = 0  # time dimension start index
+        args.end_time = 10
+        args.start_pos_x = 3000
+        args.start_pos_y = 500
+        args.end_pos_x = 500
+        args.end_pos_y = 2000
 
     return args
 
