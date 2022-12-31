@@ -19,9 +19,9 @@ def compress_step(model, x, batch_size=4):
     x = DataLoader(x, batch_size=batch_size, shuffle=False)
     if model.model_type.lower().find("hierachical") != -1:
         z_tensor, y_tensor = [], []
-        model_divice = next(model.parameters()).device
+        model_device = next(model.parameters()).device
         for i, da in enumerate(x):
-            compressed = model.compress(da.to(model_divice).type(torch.float))
+            compressed = model.compress(da.to(model_device).type(torch.float))
             y_tensor.append(compressed[0].detach().cpu())
             z_tensor.append(compressed[1].detach().cpu())
         y_tensor = torch.cat(y_tensor, axis=0).cpu()
@@ -30,9 +30,9 @@ def compress_step(model, x, batch_size=4):
 
     elif model.model_type.lower().find("res_1") != -1:
         tensor = []
-        model_divice = next(model.parameters()).device
+        model_device = next(model.parameters()).device
         for i, da in enumerate(x):
-            compressed = model.compress(da.to(model_divice).type(torch.float))
+            compressed = model.compress(da.to(model_device).type(torch.float))
             tensor.append(compressed[0].detach().cpu())
         tensor = torch.cat(tensor, axis=0).cpu()
         tensors = (tensor, *compressed[1:])
@@ -91,7 +91,7 @@ def load_compressed(input_file):
 
 def decompress_step(model, tensors, batch_size=4):
     """Decompress step."""
-    model_divice = next(model.parameters()).device
+    model_device = next(model.parameters()).device
     x_hat = []
 
     if model.model_type.lower().find("hierachical") != -1:
@@ -99,7 +99,7 @@ def decompress_step(model, tensors, batch_size=4):
         num_hidden_z_tensor = int(np.prod(z_shape[:-1]) * batch_size)
         # make data for fast data loading
         z_quantized = DataLoader(
-            tensors[1].to(model_divice).type(torch.int64),
+            tensors[1].to(model_device).type(torch.int64),
             batch_size=num_hidden_z_tensor,
             shuffle=False,
         )
@@ -108,13 +108,13 @@ def decompress_step(model, tensors, batch_size=4):
         num_hidden_y_tensor = int(np.prod(y_shape[:-1]) * batch_size)
         # make data for fast data loading
         y_quantized = DataLoader(
-            tensors[0].to(model_divice).type(torch.int64),
+            tensors[0].to(model_device).type(torch.int64),
             batch_size=num_hidden_y_tensor,
             shuffle=False,
         )
 
         for i, da in enumerate(zip(y_quantized, z_quantized)):
-            # da = da.to(model_divice).type(torch.int64)
+            # da = da.to(model_device).type(torch.int64)
             decompressed = model.decompress(*da, *tensors[2:])
             x_hat.append(decompressed.detach().cpu())
         x_hat = torch.cat(x_hat, axis=0).cpu()
@@ -124,7 +124,7 @@ def decompress_step(model, tensors, batch_size=4):
         num_hidden_y_tensor = int(np.prod(y_shape[:-1]) * batch_size)
         # make data for fast data loading
         y_quantized = DataLoader(
-            tensors[0].to(model_divice).type(torch.int64),
+            tensors[0].to(model_device).type(torch.int64),
             batch_size=num_hidden_y_tensor,
             shuffle=False,
         )
