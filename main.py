@@ -136,6 +136,7 @@ def main():
                 errno.ENOENT, os.strerror(errno.ENOENT), args.model_path
             )
         model.name = args.model_path.split("/")[-3]
+        model.eval()
 
         #  Data IO
         dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
@@ -167,8 +168,8 @@ def main():
                 lower_pos_y = min(args.start_pos_y, args.end_pos_y)
                 higher_pos_y = max(args.start_pos_y, args.end_pos_y)
                 times = (args.start_time, args.end_time)
-                lower_pos = (lower_pos_x, lower_pos_y)
-                upper_pos = (higher_pos_x, higher_pos_y)
+                lower_coors = (lower_pos_y, lower_pos_x)
+                upper_coors = (higher_pos_y, higher_pos_x)
                 filenames = data_retrival.get_desired_filenames(filenames, times)
             metadata_file = utils.get_filenames(args.input_path, postfix=".nc")
             filenames.extend(metadata_file)
@@ -178,7 +179,7 @@ def main():
             if args.command == "decompress":
                 decompress_loop(args, model, filenames, dataio)
             else:
-                get_data(args, model, filenames, dataio, lower_pos, upper_pos)
+                get_data(args, model, filenames, dataio, lower_coors, upper_coors)
             logger.info(f"Decompression completed!")
             logger.log(
                 f"Total decompression time: {time.perf_counter() - start_time:0.4f} seconds"
@@ -290,7 +291,7 @@ def decompress_loop(args, model, filenames, dataio):
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
 
-def get_data(args, model, filenames, dataio, lower_pos, upper_pos):
+def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
     if args.output_path is None:
         output_path = os.path.join(
             "./outputs",
@@ -310,27 +311,150 @@ def get_data(args, model, filenames, dataio, lower_pos, upper_pos):
     )
     shutil.copy(metadata_filename, ncfile)
     mask = compression.load_compressed(mask_filename)[0]
+
+    num_pad_tiles = dataio.get_num_pad_tiles()
+    lower_tiles = []
+    upper_tiles = []
+    for i in range(len(num_pad_tiles)):
+        lower_tiles.append(lower_coors[i] // dataio.patch_size)
+        if (upper_coors[i] % dataio.patch_size) == 0:
+            upper_tiles.append((upper_coors[i] // dataio.patch_size))
+        else:
+            upper_tiles.append((upper_coors[i] // dataio.patch_size) + 1)
+        upper_tiles[i] = min(upper_tiles[i], num_pad_tiles[i])
+    # upper_tiles = min((upper_coors // dataio.patch_size) + 1, num_pad_tiles)
+    print(f"num_pad_tiles: {num_pad_tiles}")
+    print(f"lower_coors: {lower_coors}, upper_coors: {upper_coors}")
+    print(f"lower_tiles: {lower_tiles}, upper_tiles: {upper_tiles}")
+    coors = (lower_coors, upper_coors)
+    ranges = [upper_coors[i] - lower_coors[i] for i in range(len(lower_coors))]
+    print(f"ranges: {ranges}")
+    # // TODO: get data based on num_pad_tiles
+    # // TODO: using the tile index is faster than using the coor index
+    # TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
+    # initial dataio params
+    print(f"\ninitial dataio params")
+    dataio.print_instance_attributes()
+    dataio.padder.print_instance_attributes()
+    print(f"\n\n")
     total_writing_time = 0
     for i, filename in enumerate(filenames):
         tensors = compression.load_compressed(filename)
-        print(f"len tensors: {len(tensors)}")
-        # print(f"tensors: {tensors}")
-        sys.exit()
+
+        # tensors = compression.load_compressed(filename)
+        x_hat_test = compression.decompress(model, tensors, mask, args.verbose)
+        x_hat_test = x_hat_test * mask
+        x_hat_test = torch.permute(x_hat_test, (0, 2, 3, 1)).detach().cpu().numpy()
+        x_hat_test = dataio.revert_partition(x_hat_test)
+        x_hat_test = x_hat_test[0, ::-1, :, 0]
+        plt.figure()
+        plt.imshow(x_hat_test)
+
+        num_latents = len(tensors) // 2
+        for i in range(num_latents):
+            da, da_shape = tensors[i], tensors[i + num_latents]
+            da = da.reshape((*num_pad_tiles, *da_shape[:-1]))
+            da = da[
+                lower_tiles[0] : upper_tiles[0], lower_tiles[1] : upper_tiles[1], ...
+            ]
+            # number of tiles in each dimension
+            # final_num_pad_tiles = da.shape[:num_latents]
+            da = da.reshape((-1, 1))
+            tensors[i] = da
+            # print(f"tensor {i}: {da.shape}")
+
+        # print(f"final_num_pad_tiles: {final_num_pad_tiles}")
+
+        # print(f"mask: {mask.shape}")
+        mask = mask.reshape((*num_pad_tiles, *mask.shape[-2:]))
+        mask = mask[
+            lower_tiles[0] : upper_tiles[0], lower_tiles[1] : upper_tiles[1], ...
+        ]
+        num_pad_tiles = mask.shape[:num_latents]
+        print(f"num_pad_tiles: {num_pad_tiles}")
+
+        mask = mask.reshape((-1, 1, *mask.shape[-2:]))
+        # print(f"mask: {mask.shape}")
+        # sys.exit()
         x_hat = compression.decompress(model, tensors, mask, args.verbose)
         x_hat = x_hat * mask
         x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+
+        new_shape = [num_tile * dataio.patch_size for num_tile in num_pad_tiles]
+        dataio.data_shape = [1] + new_shape + [1]
+        dataio.print_instance_attributes()
+        dataio.padder.print_instance_attributes()
+        print(f"x_hat.shape: {x_hat.shape}")
+        # sys.exit()
         x_hat = dataio.revert_partition(x_hat)
         x_hat = x_hat[0, ::-1, :, 0]
+        print(f"x_hat.shape: {x_hat.shape}")
 
+        pad_fronts = [
+            lower_coors[i] - lower_tiles[i] * dataio.patch_size
+            for i in range(len(lower_coors))
+        ]
+        print(f"pad_fronts: {pad_fronts}")
+        print(f"x_hat.shape: {x_hat.shape}")
+        plt.figure()
+        plt.imshow(x_hat)
+
+        x_hat = x_hat[
+            pad_fronts[0] : pad_fronts[0] + ranges[0],
+            pad_fronts[1] : pad_fronts[1] + ranges[1],
+        ]
+        print(f"x_hat.shape: {x_hat.shape}")
+
+        x_hat_test_rear = x_hat_test[
+            lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
+            0 : lower_tiles[1] * dataio.patch_size,
+        ]
+        plt.figure()
+        plt.imshow(x_hat_test_rear)
+
+        x_hat_test_rear = x_hat_test[
+            0 : lower_tiles[0] * dataio.patch_size,
+            lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
+        ]
+        plt.figure()
+        plt.imshow(x_hat_test_rear)
+
+        # x_hat_test = x_hat_test[
+        #     lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
+        #     lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
+        # ]
+        # x_hat_test = x_hat_test[
+        #     lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
+        #     lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
+        # ]
+        x_hat_test = x_hat_test[
+            lower_coors[0] : upper_coors[0],
+            lower_coors[1] : upper_coors[1],
+        ]
+
+        print(f"x_hat_test.shape: {x_hat_test.shape}")
+        x_hat_diff = x_hat_test - x_hat
+        plt.figure()
+        plt.imshow(x_hat_test)
+        plt.figure()
+        plt.imshow(x_hat)
+        plt.figure()
+        plt.imshow(x_hat_diff)
+        plt.show()
+
+        sys.exit()
         writing_time = time.perf_counter()
         netcdf_utils.write_data_to_netcdf(
             ncfile,
             x_hat,
             args.ds_name,
             time_idx=i,
+            coors=coors,
             verbose=args.verbose,
         )
         total_writing_time += time.perf_counter() - writing_time
+        sys.exit()
+
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
 
@@ -374,7 +498,7 @@ def create_argparser():
         args.end_time = 10
         args.start_pos_x = 3000
         args.start_pos_y = 500
-        args.end_pos_x = 500
+        args.end_pos_x = 270
         args.end_pos_y = 2000
 
     return args
