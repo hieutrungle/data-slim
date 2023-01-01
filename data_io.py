@@ -25,15 +25,43 @@ NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 
 class Dataio:
     def __init__(self, batch_size, patch_size, data_shape):
+        self.padder = None
         self.batch_size = batch_size
         self.patch_size = patch_size
         self.data_shape = data_shape
         self.params = {}
         self.transform = transforms.Compose([transforms.ToTensor()])
-        if len(data_shape) == 4:
-            self.padder = padder.Padder2D(patch_size, data_shape)
-        elif len(data_shape) == 5:
-            self.padder = padder.Padder3D(patch_size, data_shape)
+        self._init_padder()
+
+    @property
+    def patch_size(self):
+        return self._patch_size
+
+    @patch_size.setter
+    def patch_size(self, value):
+        self._patch_size = value
+        # logger.warn(f"Recalculating padder")
+        # self._init_padder()
+        if self.padder is not None:
+            self._init_padder()
+
+    @property
+    def data_shape(self):
+        return self._data_shape
+
+    @data_shape.setter
+    def data_shape(self, value):
+        # if self._data_shape is not None:
+        #     logger.warn(f"Recalculating padder")
+        self._data_shape = value
+        if self.padder is not None:
+            self._init_padder()
+
+    def _init_padder(self):
+        if len(self.data_shape) == 4:
+            self.padder = padder.Padder2D(self.patch_size, self.data_shape)
+        elif len(self.data_shape) == 5:
+            self.padder = padder.Padder3D(self.patch_size, self.data_shape)
         else:
             raise ValueError("data shape must be of length 4 or 5.")
 
@@ -208,7 +236,7 @@ class Dataio:
 
     def get_training_parameters(self):
         return self.params
-    
+
     def get_num_pad_tiles(self):
         return self.padder.num_pad_tiles
 
@@ -217,6 +245,13 @@ class Dataio:
         for k, v in self.get_training_parameters().items():
             message += k + " = " + str(v) + "\n"
         logger.log(f"DataIO Parameters:{message}")
+
+    def print_instance_attributes(self):
+        for attribute, value in self.__dict__.items():
+            print(attribute, "=", value)
+
+    def get_attributes(self):
+        return self.__dict__
 
 
 class BaseDataGen(data.Dataset):
