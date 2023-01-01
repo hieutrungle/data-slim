@@ -128,10 +128,11 @@ def set_chunksizes(dimensions):
     return chunksizes
 
 
-def write_data_to_netcdf(output_file, da, ds_name, time_idx, verbose=False):
+def write_data_to_netcdf(output_file, da, ds_name, time_idx, coors=None, verbose=False):
 
     # with nc.Dataset(output_file) as ds:
     #     nc_attrs, nc_dims, nc_vars = ncdump(ds)
+
     with nc.Dataset(output_file, mode="a", format="NETCDF4") as ncfile:
         nc_attrs, nc_dims, nc_vars = ncdump(ncfile)
         for i, (var_name, var_attrs) in enumerate(nc_vars.items()):
@@ -139,10 +140,26 @@ def write_data_to_netcdf(output_file, da, ds_name, time_idx, verbose=False):
                 # print(
                 #     f"var_name: {var_name}; var_attrs: {var_attrs}; da.shape: {da.shape}"
                 # )
-                if len(var_attrs["dimensions"]) == 3:
-                    ncfile.variables[var_name][time_idx, :, :] = da
-                elif len(var_attrs["dimensions"]) == 4:
-                    ncfile.variables[var_name][time_idx, 0, :, :] = da
+                if coors is not None:
+                    lower_coors, upper_coors = coors
+                    if len(var_attrs["dimensions"]) == 3:
+                        ncfile.variables[var_name][
+                            time_idx,
+                            lower_coors[0] : upper_coors[0],
+                            lower_coors[1] : upper_coors[1],
+                        ] = da
+                    elif len(var_attrs["dimensions"]) == 4:
+                        ncfile.variables[var_name][
+                            time_idx,
+                            0,
+                            lower_coors[0] : upper_coors[0],
+                            lower_coors[1] : upper_coors[1],
+                        ] = da
+                else:
+                    if len(var_attrs["dimensions"]) == 3:
+                        ncfile.variables[var_name][time_idx, :, :] = da
+                    elif len(var_attrs["dimensions"]) == 4:
+                        ncfile.variables[var_name][time_idx, 0, :, :] = da
                 # ncfile.variables[var_name][time_idx, 0, ...] = da
 
 
