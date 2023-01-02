@@ -314,7 +314,11 @@ def decompress_loop(args, model, filenames, dataio):
         total_writing_time += time.perf_counter() - writing_time
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
-
+# // TODO: get data based on num_tiles
+# // TODO: using the tile index is faster than using the coor index
+# // TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
+# TODO: numerical error when decompressing x_hat and x_hat_test, (error < 1e-3)
+# (x_hat_test is the decompressed data on the whole original data)
 def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
     if args.output_path is None:
         output_path = os.path.join(
@@ -357,9 +361,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
         upper_tiles[i] = min(upper_tiles[i], num_tiles[i])
     coors = (lower_coors, upper_coors)
     ranges = [upper_coors[i] - lower_coors[i] for i in range(len(lower_coors))]
-    # // TODO: get data based on num_tiles
-    # // TODO: using the tile index is faster than using the coor index
-    # // TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
+    
 
     # Get mask corresponding to the calculated tiles.
     mask = mask.reshape((*num_tiles, *mask.shape[len(num_tiles) :]))
