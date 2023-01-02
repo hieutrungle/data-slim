@@ -20,8 +20,8 @@ torch.manual_seed(41)
 torch.use_deterministic_algorithms(True)
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = str(":4096:8")
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
+NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
 def main():

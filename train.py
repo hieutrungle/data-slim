@@ -15,9 +15,8 @@ import sys
 from utils import utils, scheduler, logger, custom_callbacks
 import gc
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-AVAILABLE_GPUS = [torch.cuda.device(i) for i in range(torch.cuda.device_count())]
-NUM_GPUS = len(AVAILABLE_GPUS)
+DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
+NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
 class Compressor(pl.LightningModule):

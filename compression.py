@@ -9,9 +9,14 @@ from utils import utils, logger
 from torch.utils.data import DataLoader
 import torch
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# if DEVICE != "cpu":
+#     NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+# else:
+#     NUM_GPUS = 0
 IS_CHECKING_MEMORY = False
+DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
+NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
 def compress_step(model, x, batch_size=4):

@@ -16,8 +16,8 @@ import torch
 import argparse
 import errno
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
+NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
 def mkdir_if_not_exist(path):
@@ -316,8 +316,8 @@ def log_args_and_device_info(args):
                 message += f"{k} = {v}\n"
 
         # Additional Info when using cuda
-        if DEVICE.type == "cuda":
-            message += f"\nUsing device: {str(DEVICE)}\n"
+        message += f"\nUsing device: {str(DEVICE)}\n"
+        if DEVICE.type != "cpu":
             for i in range(NUM_GPUS):
                 mem_allot = round(torch.cuda.memory_allocated(i) / 1024**3, 1)
                 mem_cached = round(torch.cuda.memory_reserved(i) / 1024**3, 1)
