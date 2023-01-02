@@ -2,6 +2,16 @@ import sys
 import os
 from torchinfo import summary
 import torch
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
+if DEVICE.type != "cpu":
+    NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+else:
+    NUM_GPUS = 0
+os.environ["DEVICE"] = str(DEVICE.type)
+os.environ["NUM_GPUS"] = str(NUM_GPUS)
+
 import argparse
 import netcdf_utils
 import data_io
@@ -14,11 +24,21 @@ import shutil
 from pathlib import Path
 import glob
 import errno
+import numpy as np
 import matplotlib.pyplot as plt
 import data_retrival
+import copy
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+
+# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# if DEVICE != "cpu":
+#     NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+# else:
+#     NUM_GPUS = 0
+# os.environ["DEVICE"] = str(DEVICE.type)
+# os.environ["NUM_GPUS"] = str(NUM_GPUS)
+
+# print(str(os.environ.get("DEVICE", "cpu")))
 
 
 def main():
@@ -168,8 +188,12 @@ def main():
                 lower_pos_y = min(args.start_pos_y, args.end_pos_y)
                 higher_pos_y = max(args.start_pos_y, args.end_pos_y)
                 times = (args.start_time, args.end_time)
+                # pad_fronts = dataio.get_padded_dims()[1:-1]
+                # pad_fronts = np.array([pads[0] for pads in pad_fronts])
                 lower_coors = (lower_pos_y, lower_pos_x)
+                # lower_coors = list(np.array(lower_coors) + pad_fronts)
                 upper_coors = (higher_pos_y, higher_pos_x)
+                # upper_coors = list(np.array(upper_coors) + pad_fronts)
                 filenames = data_retrival.get_desired_filenames(filenames, times)
             metadata_file = utils.get_filenames(args.input_path, postfix=".nc")
             filenames.extend(metadata_file)
@@ -301,6 +325,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
         output_path = args.output_path
     utils.mkdir_if_not_exist(output_path)
 
+    # Prepare the mask and metadata
     mask_filename = [f for f in filenames if f.find("mask") != -1][0]
     metadata_filename = [f for f in filenames if f.find("metadata") != -1][0]
     filenames.remove(mask_filename)
@@ -312,150 +337,100 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
     shutil.copy(metadata_filename, ncfile)
     mask = compression.load_compressed(mask_filename)[0]
 
-    num_pad_tiles = dataio.get_num_pad_tiles()
+    # The original data is padded to be divisible by the patch size.
+    # We need to add the padding to the given coordinates.
+    pad_fronts = dataio.get_padded_dims()[1:-1]
+    pad_fronts = np.array([pads[0] for pads in pad_fronts])
+    lower_coors = list(np.array(lower_coors) + pad_fronts)
+    upper_coors = list(np.array(upper_coors) + pad_fronts)
+
+    # Get the corresponding tiles given the coordinates.
+    num_tiles = dataio.get_num_tiles()
     lower_tiles = []
     upper_tiles = []
-    for i in range(len(num_pad_tiles)):
+    for i in range(len(num_tiles)):
         lower_tiles.append(lower_coors[i] // dataio.patch_size)
         if (upper_coors[i] % dataio.patch_size) == 0:
             upper_tiles.append((upper_coors[i] // dataio.patch_size))
         else:
             upper_tiles.append((upper_coors[i] // dataio.patch_size) + 1)
-        upper_tiles[i] = min(upper_tiles[i], num_pad_tiles[i])
-    # upper_tiles = min((upper_coors // dataio.patch_size) + 1, num_pad_tiles)
-    print(f"num_pad_tiles: {num_pad_tiles}")
-    print(f"lower_coors: {lower_coors}, upper_coors: {upper_coors}")
-    print(f"lower_tiles: {lower_tiles}, upper_tiles: {upper_tiles}")
+        upper_tiles[i] = min(upper_tiles[i], num_tiles[i])
     coors = (lower_coors, upper_coors)
     ranges = [upper_coors[i] - lower_coors[i] for i in range(len(lower_coors))]
-    print(f"ranges: {ranges}")
-    # // TODO: get data based on num_pad_tiles
+    # // TODO: get data based on num_tiles
     # // TODO: using the tile index is faster than using the coor index
-    # TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
-    # initial dataio params
-    print(f"\ninitial dataio params")
-    dataio.print_instance_attributes()
-    dataio.padder.print_instance_attributes()
-    print(f"\n\n")
+    # // TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
+
+    # Get mask corresponding to the calculated tiles.
+    mask = mask.reshape((*num_tiles, *mask.shape[len(num_tiles) :]))
+    mask = mask[
+        lower_tiles[0] : upper_tiles[0],
+        lower_tiles[1] : upper_tiles[1],
+        ...,
+    ]
+    num_x_hat_tiles = mask.shape[: len(mask.shape) // 2]
+    mask = mask.reshape((-1, 1, *mask.shape[-2:]))
+
     total_writing_time = 0
-    for i, filename in enumerate(filenames):
-        tensors = compression.load_compressed(filename)
+    total_decompress_time = 0
+    model.eval()
+    with torch.no_grad():
+        for i, filename in enumerate(filenames):
+            tensors = compression.load_compressed(filename)
 
-        # tensors = compression.load_compressed(filename)
-        x_hat_test = compression.decompress(model, tensors, mask, args.verbose)
-        x_hat_test = x_hat_test * mask
-        x_hat_test = torch.permute(x_hat_test, (0, 2, 3, 1)).detach().cpu().numpy()
-        x_hat_test = dataio.revert_partition(x_hat_test)
-        x_hat_test = x_hat_test[0, ::-1, :, 0]
-        plt.figure()
-        plt.imshow(x_hat_test)
+            # Get data corresponding to the calculated tiles.
+            num_latents = len(tensors) // 2
+            for i in range(num_latents):
+                da, da_shape = tensors[i], tensors[i + num_latents]
+                da = da.reshape((*num_tiles, *da_shape[:-1]))
+                da = da[
+                    lower_tiles[0] : upper_tiles[0],
+                    lower_tiles[1] : upper_tiles[1],
+                    ...,
+                ]
+                da = da.reshape((-1, 1))
+                tensors[i] = da
 
-        num_latents = len(tensors) // 2
-        for i in range(num_latents):
-            da, da_shape = tensors[i], tensors[i + num_latents]
-            da = da.reshape((*num_pad_tiles, *da_shape[:-1]))
-            da = da[
-                lower_tiles[0] : upper_tiles[0], lower_tiles[1] : upper_tiles[1], ...
+            # Decompress and reshape the data.
+
+            decompress_time = time.perf_counter()
+            x_hat = compression.decompress(model, tensors, mask, args.verbose)
+            x_hat = x_hat * mask
+            x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+            total_decompress_time += time.perf_counter() - decompress_time
+
+            new_shape = [num_tile * dataio.patch_size for num_tile in num_x_hat_tiles]
+            dataio.data_shape = [1] + new_shape + [1]
+            x_hat = dataio.revert_partition(x_hat)
+            x_hat = x_hat[0, ..., 0]
+
+            # Because the original data is padded to be divisible by the patch size,
+            # the decompressed data is also padded to be divisible by the patch size.
+            # Therefore, there are some extra data points at the begining and the end of the decompressed data.
+            # we need to remove the residual points from the reconstructed data.
+            residual_fronts = [
+                lower_coors[i] - lower_tiles[i] * dataio.patch_size
+                for i in range(len(lower_coors))
             ]
-            # number of tiles in each dimension
-            # final_num_pad_tiles = da.shape[:num_latents]
-            da = da.reshape((-1, 1))
-            tensors[i] = da
-            # print(f"tensor {i}: {da.shape}")
-
-        # print(f"final_num_pad_tiles: {final_num_pad_tiles}")
-
-        # print(f"mask: {mask.shape}")
-        mask = mask.reshape((*num_pad_tiles, *mask.shape[-2:]))
-        mask = mask[
-            lower_tiles[0] : upper_tiles[0], lower_tiles[1] : upper_tiles[1], ...
-        ]
-        num_pad_tiles = mask.shape[:num_latents]
-        print(f"num_pad_tiles: {num_pad_tiles}")
-
-        mask = mask.reshape((-1, 1, *mask.shape[-2:]))
-        # print(f"mask: {mask.shape}")
-        # sys.exit()
-        x_hat = compression.decompress(model, tensors, mask, args.verbose)
-        x_hat = x_hat * mask
-        x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
-
-        new_shape = [num_tile * dataio.patch_size for num_tile in num_pad_tiles]
-        dataio.data_shape = [1] + new_shape + [1]
-        dataio.print_instance_attributes()
-        dataio.padder.print_instance_attributes()
-        print(f"x_hat.shape: {x_hat.shape}")
-        # sys.exit()
-        x_hat = dataio.revert_partition(x_hat)
-        x_hat = x_hat[0, ::-1, :, 0]
-        print(f"x_hat.shape: {x_hat.shape}")
-
-        pad_fronts = [
-            lower_coors[i] - lower_tiles[i] * dataio.patch_size
-            for i in range(len(lower_coors))
-        ]
-        print(f"pad_fronts: {pad_fronts}")
-        print(f"x_hat.shape: {x_hat.shape}")
-        plt.figure()
-        plt.imshow(x_hat)
-
-        x_hat = x_hat[
-            pad_fronts[0] : pad_fronts[0] + ranges[0],
-            pad_fronts[1] : pad_fronts[1] + ranges[1],
-        ]
-        print(f"x_hat.shape: {x_hat.shape}")
-
-        x_hat_test_rear = x_hat_test[
-            lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
-            0 : lower_tiles[1] * dataio.patch_size,
-        ]
-        plt.figure()
-        plt.imshow(x_hat_test_rear)
-
-        x_hat_test_rear = x_hat_test[
-            0 : lower_tiles[0] * dataio.patch_size,
-            lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
-        ]
-        plt.figure()
-        plt.imshow(x_hat_test_rear)
-
-        # x_hat_test = x_hat_test[
-        #     lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
-        #     lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
-        # ]
-        # x_hat_test = x_hat_test[
-        #     lower_tiles[0] * dataio.patch_size : upper_tiles[0] * dataio.patch_size,
-        #     lower_tiles[1] * dataio.patch_size : upper_tiles[1] * dataio.patch_size,
-        # ]
-        x_hat_test = x_hat_test[
-            lower_coors[0] : upper_coors[0],
-            lower_coors[1] : upper_coors[1],
-        ]
-
-        print(f"x_hat_test.shape: {x_hat_test.shape}")
-        x_hat_diff = x_hat_test - x_hat
-        plt.figure()
-        plt.imshow(x_hat_test)
-        plt.figure()
-        plt.imshow(x_hat)
-        plt.figure()
-        plt.imshow(x_hat_diff)
-        plt.show()
-
-        sys.exit()
-        writing_time = time.perf_counter()
-        netcdf_utils.write_data_to_netcdf(
-            ncfile,
-            x_hat,
-            args.ds_name,
-            time_idx=i,
-            coors=coors,
-            verbose=args.verbose,
-        )
-        total_writing_time += time.perf_counter() - writing_time
-        sys.exit()
+            x_hat = x_hat[
+                residual_fronts[0] : residual_fronts[0] + ranges[0],
+                residual_fronts[1] : residual_fronts[1] + ranges[1],
+            ]
+            continue
+            writing_time = time.perf_counter()
+            netcdf_utils.write_data_to_netcdf(
+                ncfile,
+                x_hat,
+                args.ds_name,
+                time_idx=i,
+                coors=coors,
+                verbose=args.verbose,
+            )
+            total_writing_time += time.perf_counter() - writing_time
+            sys.exit()
 
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
+    logger.log(f"Total decompress time: {total_decompress_time:0.4f} seconds")
 
 
 def create_argparser():
@@ -495,11 +470,11 @@ def create_argparser():
     elif args.command.lower() in ["get_data"]:
 
         args.start_time = 0  # time dimension start index
-        args.end_time = 10
-        args.start_pos_x = 3000
-        args.start_pos_y = 500
-        args.end_pos_x = 270
-        args.end_pos_y = 2000
+        args.end_time = 120  # time dimension end index
+        args.start_pos_x = 524
+        args.start_pos_y = 234
+        args.end_pos_x = 987
+        args.end_pos_y = 412
 
     return args
 
