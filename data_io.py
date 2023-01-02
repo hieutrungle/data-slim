@@ -19,8 +19,8 @@ dask.config.set(scheduler="synchronous")
 
 from utils import logger, utils
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
+NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
 class Dataio:
@@ -237,8 +237,11 @@ class Dataio:
     def get_training_parameters(self):
         return self.params
 
-    def get_num_pad_tiles(self):
-        return self.padder.num_pad_tiles
+    def get_num_tiles(self):
+        return self.padder.num_tiles
+
+    def get_padded_dims(self):
+        return self.padder.pad_dim
 
     def log_training_parameters(self):
         message = "\n"
