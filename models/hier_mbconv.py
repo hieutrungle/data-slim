@@ -791,7 +791,7 @@ def _model_conf(
             ],
             "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
         }
-    if arch.startswith("hier_mbconv_adaptive_3"):
+    elif arch.startswith("hier_mbconv_adaptive_3"):
         inverted_residual_setting = {
             "pre_block": [PreBlockConfig(1, 3, 1, 1, pre_num_channels, 1)],
             "encoder_0": [
