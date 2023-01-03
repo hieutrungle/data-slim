@@ -4,7 +4,6 @@ from torchinfo import summary
 import torch
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("cpu")
 if DEVICE.type != "cpu":
     NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
 else:
@@ -25,20 +24,7 @@ from pathlib import Path
 import glob
 import errno
 import numpy as np
-import matplotlib.pyplot as plt
 import data_retrival
-import copy
-
-
-# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# if DEVICE != "cpu":
-#     NUM_GPUS = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
-# else:
-#     NUM_GPUS = 0
-# os.environ["DEVICE"] = str(DEVICE.type)
-# os.environ["NUM_GPUS"] = str(NUM_GPUS)
-
-# print(str(os.environ.get("DEVICE", "cpu")))
 
 
 def main():
@@ -46,8 +32,6 @@ def main():
     logger.configure(dir="./tmp_logs")
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
-    logger.log(f"NUM_GPUS: {NUM_GPUS}")
-    logger.log(f"DEVICE: {DEVICE}")
 
     # Model Initialization
     start_time = time.perf_counter()
