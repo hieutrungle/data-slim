@@ -35,8 +35,8 @@ class Compressor(pl.LightningModule):
         self.save_hyperparameters(ignore=["model"])
         # Create model
         self.model = model
-        self.vq_weight = 0.5
-        self.mse_weight = 5
+        # self.vq_weight = 0.5
+        self.mse_weight = 3
         # Example input for visualizing the graph in Tensorboard
         self.example_input_array = torch.randn(tuple(self.model.input_shape))
 
@@ -47,6 +47,21 @@ class Compressor(pl.LightningModule):
         loss, x_hat, perplexity = self.model(x)
         return loss, x_hat, perplexity
 
+    def _get_fft_mse_loss(self, x, x_hat):
+        dim = tuple(range(1, len(x.shape), 1))
+        x_fft = torch.fft.fftn(x, dim=dim, norm="ortho")
+        x_fft_magnitude = torch.abs(x_fft)
+        x_fft_angle = torch.angle(x_fft)
+
+        x_hat_fft = torch.fft.fftn(x_hat, dim=dim, norm="ortho")
+        x_hat_fft_magnitude = torch.abs(x_hat_fft)
+        x_hat_fft_angle = torch.angle(x_hat_fft)
+
+        fft_magnitude_mse = F.mse_loss(x_fft_magnitude, x_hat_fft_magnitude)
+        fft_angle_mse = F.mse_loss(x_fft_angle, x_hat_fft_angle)
+        fft_mse_loss = fft_magnitude_mse + fft_angle_mse
+        return fft_mse_loss
+
     def _get_loss(self, batch):
         """
         Given a batch of data, this function returns the reconstruction loss (MSE in our case)
@@ -54,12 +69,15 @@ class Compressor(pl.LightningModule):
         x, mask = batch
         x = x.type(torch.float32)
         mask = mask.type(torch.float32)
-        quantized_loss, x_hat, perplexity = self.forward(x)
+        quantized_loss, x_hat, _ = self.forward(x)
         x_hat = x_hat.type(torch.float32)
         x = x * mask
         x_hat = x_hat * mask
         mse_loss = F.mse_loss(x, x_hat)
-        return mse_loss, quantized_loss
+        # frequency domain mse loss
+        fft_mse_loss = self._get_fft_mse_loss(x, x_hat)
+
+        return mse_loss, quantized_loss, fft_mse_loss
 
     def configure_optimizers(self):
         if len(self.hparams.resume_checkpoint) > 0:
@@ -68,7 +86,7 @@ class Compressor(pl.LightningModule):
                 lr=self.hparams.lr,
                 betas=(0.9, 0.9999),
                 eps=1e-08,
-                weight_decay=0.05,
+                weight_decay=1e-8,
                 amsgrad=False,
             )
         else:
@@ -87,12 +105,13 @@ class Compressor(pl.LightningModule):
         return [optimizer], [{"scheduler": lr_scheduler, "interval": "step"}]
 
     def training_step(self, batch, batch_idx):
-        mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
+        mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
+        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         self.log("mse_loss", mse_loss, prog_bar=True)
         self.log("quantized_loss", quantized_loss, prog_bar=True)
+        self.log("fft_mse_loss", fft_mse_loss, prog_bar=True)
         self.log("train_loss", loss, on_epoch=True)
         self.log("lr", cur_lr, prog_bar=True, on_step=True)
         self.log("hp/train_loss", loss)
@@ -101,19 +120,21 @@ class Compressor(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
+        mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
+        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
         self.log("val_mse_loss", mse_loss)
         self.log("val_quantized_loss", quantized_loss)
+        self.log("val_fft_mse_loss", fft_mse_loss)
         self.log("val_loss", loss, prog_bar=True)
         self.log("hp/val_loss", loss)
         self.log("hp/val_mse", mse_loss)
 
     def test_step(self, batch, batch_idx):
-        mse_loss, quantized_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss * self.vq_weight
+        mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
+        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
         self.log("test_mse_loss", mse_loss)
         self.log("test_quantized_loss", quantized_loss)
+        self.log("test_fft_mse_loss", fft_mse_loss)
         self.log("test_loss", loss, on_epoch=True)
 
     def compress(self, x):
@@ -174,6 +195,15 @@ def train(
     tfboard_logger = pl.loggers.tensorboard.TensorBoardLogger(
         summaries_dir, name="", version=version, log_graph=True, default_hp_metric=False
     )
+    limit_val_batches = 1.0
+    limit_train_batches = 1.0
+    limit_test_batches = 1.0
+    # if args is not None:
+    #     if args.local_test == True:
+    #         limit_val_batches = 0.05
+    #         limit_train_batches = 0.05
+    #         limit_test_batches = 0.05
+
     trainer = pl.Trainer(
         fast_dev_run=False,
         default_root_dir=os.path.join(checkpoints_dir),
@@ -183,9 +213,9 @@ def train(
         log_every_n_steps=log_interval,
         logger=tfboard_logger,
         callbacks=_callbacks,
-        # limit_val_batches=0.05,
-        # limit_train_batches=0.05,
-        # limit_test_batches=0.05,
+        limit_val_batches=limit_val_batches,
+        limit_train_batches=limit_train_batches,
+        limit_test_batches=limit_test_batches,
         gradient_clip_algorithm="norm",
         enable_progress_bar=train_verbose,
     )
