@@ -178,6 +178,8 @@ class Dataio:
         pin_memory=False,
     ):
         self._check_generator_type(data_gen)
+        if num_workers == 0:
+            num_workers = 1
         return data.DataLoader(
             data_gen,
             batch_size=self.batch_size,
