@@ -314,6 +314,7 @@ def decompress_loop(args, model, filenames, dataio):
         total_writing_time += time.perf_counter() - writing_time
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
 
+
 # // TODO: get data based on num_tiles
 # // TODO: using the tile index is faster than using the coor index
 # // TODO: need to take into account the padding at the front and back when applaying dataio padding at the beginning
@@ -345,6 +346,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
     # We need to add the padding to the given coordinates.
     pad_fronts = dataio.get_padded_dims()[1:-1]
     pad_fronts = np.array([pads[0] for pads in pad_fronts])
+    coors = (lower_coors, upper_coors)
     lower_coors = list(np.array(lower_coors) + pad_fronts)
     upper_coors = list(np.array(upper_coors) + pad_fronts)
 
@@ -359,9 +361,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
         else:
             upper_tiles.append((upper_coors[i] // dataio.patch_size) + 1)
         upper_tiles[i] = min(upper_tiles[i], num_tiles[i])
-    coors = (lower_coors, upper_coors)
     ranges = [upper_coors[i] - lower_coors[i] for i in range(len(lower_coors))]
-    
 
     # Get mask corresponding to the calculated tiles.
     mask = mask.reshape((*num_tiles, *mask.shape[len(num_tiles) :]))
@@ -382,8 +382,8 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
 
             # Get data corresponding to the calculated tiles.
             num_latents = len(tensors) // 2
-            for i in range(num_latents):
-                da, da_shape = tensors[i], tensors[i + num_latents]
+            for j in range(num_latents):
+                da, da_shape = tensors[j], tensors[j + num_latents]
                 da = da.reshape((*num_tiles, *da_shape[:-1]))
                 da = da[
                     lower_tiles[0] : upper_tiles[0],
@@ -391,10 +391,9 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
                     ...,
                 ]
                 da = da.reshape((-1, 1))
-                tensors[i] = da
+                tensors[j] = da
 
             # Decompress and reshape the data.
-
             decompress_time = time.perf_counter()
             x_hat = compression.decompress(model, tensors, mask, args.verbose)
             x_hat = x_hat * mask
@@ -404,7 +403,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
             new_shape = [num_tile * dataio.patch_size for num_tile in num_x_hat_tiles]
             dataio.data_shape = [1] + new_shape + [1]
             x_hat = dataio.revert_partition(x_hat)
-            x_hat = x_hat[0, ..., 0]
+            x_hat = x_hat[0, ::-1, :, 0]
 
             # Because the original data is padded to be divisible by the patch size,
             # the decompressed data is also padded to be divisible by the patch size.
@@ -418,7 +417,6 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
                 residual_fronts[0] : residual_fronts[0] + ranges[0],
                 residual_fronts[1] : residual_fronts[1] + ranges[1],
             ]
-            continue
             writing_time = time.perf_counter()
             netcdf_utils.write_data_to_netcdf(
                 ncfile,
@@ -429,8 +427,6 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
                 verbose=args.verbose,
             )
             total_writing_time += time.perf_counter() - writing_time
-            sys.exit()
-
     logger.log(f"Total writing time: {total_writing_time:0.4f} seconds")
     logger.log(f"Total decompress time: {total_decompress_time:0.4f} seconds")
 
@@ -472,11 +468,11 @@ def create_argparser():
     elif args.command.lower() in ["get_data"]:
 
         args.start_time = 0  # time dimension start index
-        args.end_time = 120  # time dimension end index
+        args.end_time = 3  # time dimension end index
         args.start_pos_x = 524
         args.start_pos_y = 234
-        args.end_pos_x = 987
-        args.end_pos_y = 412
+        args.end_pos_x = 2541
+        args.end_pos_y = 2054
 
     return args
 
