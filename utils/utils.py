@@ -235,6 +235,20 @@ def data_defaults():
     )
 
 
+def get_data_defaults():
+    """
+    Defaults for getting data.
+    """
+    return dict(
+        start_time=0,  # time dimension start index
+        end_time=3,  # time dimension end index
+        start_pos_x=524,
+        start_pos_y=234,
+        end_pos_x=2541,
+        end_pos_y=2054,
+    )
+
+
 def create_model(
     patch_size,
     patch_depth,
