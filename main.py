@@ -27,11 +27,12 @@ import numpy as np
 import data_retrival
 
 
-def main():
-    args = create_argparser()
+def main(args):
     logger.configure(dir="./tmp_logs")
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
+
+    sys.exit()
 
     # Model Initialization
     start_time = time.perf_counter()
@@ -415,15 +416,14 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
     logger.log(f"Total decompress time: {total_decompress_time:0.4f} seconds")
 
 
-def create_argparser():
-    """Parses command line arguments."""
+def get_default_arguments():
     defaults = dict(
         command="",
         data_dir="",
         ds_name="SST",
         model_path="./saved_models/model",
         use_fp16=False,
-        verbose=False,
+        verbose=True,
         resume="",
         iter=-1,  # -1 means resume from the best model
         local_test=False,
@@ -434,6 +434,27 @@ def create_argparser():
     defaults.update(utils.train_defaults())
     defaults.update(utils.data_defaults())
     defaults.update(utils.get_data_defaults())
+    return defaults
+
+
+class Args:
+    def __init__(self, *args, **kwargs):
+        for item in kwargs:
+            setattr(self, item, kwargs[item])
+
+    def __repr__(self):
+        message = "\n"
+        for k, v in self.__dict__.items():
+            if isinstance(v, str):
+                message += f"{k} = '{v}'\n"
+            else:
+                message += f"{k} = {v}\n"
+        return message
+
+
+def create_argparser():
+    """Parses command line arguments."""
+    defaults = get_default_arguments()
     parser = argparse.ArgumentParser()
     utils.add_dict_to_argparser(parser, defaults)
     args = parser.parse_args()
@@ -455,4 +476,10 @@ def create_argparser():
 
 
 if __name__ == "__main__":
-    main()
+    # Using main as a function, need to predefine 'args'
+    # defaults = get_default_arguments()
+    # args = Args(**defaults)
+
+    # Using CLI
+    args = create_argparser()
+    main(args)
