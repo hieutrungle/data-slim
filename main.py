@@ -32,8 +32,6 @@ def main(args):
     utils.configure_args(args)
     utils.log_args_and_device_info(args)
 
-    sys.exit()
-
     # Model Initialization
     start_time = time.perf_counter()
     if args.model_type.lower().find("hierachical") != -1:
