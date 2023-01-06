@@ -433,6 +433,7 @@ def create_argparser():
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
     defaults.update(utils.data_defaults())
+    defaults.update(utils.get_data_defaults())
     parser = argparse.ArgumentParser()
     utils.add_dict_to_argparser(parser, defaults)
     args = parser.parse_args()
@@ -449,14 +450,6 @@ def create_argparser():
                 args.output_path = os.path.join(
                     "outputs", args.input_path.rpartition(".")[0] + "_decompression"
                 )
-    elif args.command.lower() in ["get_data"]:
-
-        args.start_time = 0  # time dimension start index
-        args.end_time = 3  # time dimension end index
-        args.start_pos_x = 524
-        args.start_pos_y = 234
-        args.end_pos_x = 2541
-        args.end_pos_y = 2054
 
     return args
 
