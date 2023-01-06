@@ -145,14 +145,14 @@ def write_data_to_netcdf(output_file, da, ds_name, time_idx, coors=None, verbose
                     if len(var_attrs["dimensions"]) == 3:
                         ncfile.variables[var_name][
                             time_idx,
-                            lower_coors[0] : upper_coors[0],
+                            -upper_coors[0] : -lower_coors[0],
                             lower_coors[1] : upper_coors[1],
                         ] = da
                     elif len(var_attrs["dimensions"]) == 4:
                         ncfile.variables[var_name][
                             time_idx,
                             0,
-                            lower_coors[0] : upper_coors[0],
+                            -upper_coors[0] : -lower_coors[0],
                             lower_coors[1] : upper_coors[1],
                         ] = da
                 else:
