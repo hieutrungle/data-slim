@@ -122,12 +122,12 @@ class Compressor(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
         loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
-        self.log("val_mse_loss", mse_loss)
-        self.log("val_quantized_loss", quantized_loss)
-        self.log("val_fft_mse_loss", fft_mse_loss)
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("hp/val_loss", loss)
-        self.log("hp/val_mse", mse_loss)
+        self.log("val_mse_loss", mse_loss, sync_dist=True)
+        self.log("val_quantized_loss", quantized_loss, sync_dist=True)
+        self.log("val_fft_mse_loss", fft_mse_loss, sync_dist=True)
+        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        self.log("hp/val_loss", loss, sync_dist=True)
+        self.log("hp/val_mse", mse_loss, sync_dist=True)
 
     def test_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
