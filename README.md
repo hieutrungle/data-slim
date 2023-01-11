@@ -1,27 +1,127 @@
-Machine Leanrning Reduced-order Model
+# Compression Vector-quantized Variational Autoencoder
 
-Training
+This is the codebase for ["paper name and link"](https://arxiv.org/).
 
-python main.py --command train --model_path ./saved_models/testing_hier_mbconv --data_dir ../data/tccs/ocean/SST_modified --patch_size 64 --pre_num_channels 12 --num_channels 32 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --epochs 1 --batch_size 8 --model_type hier_mbconv_adaptive_2 --verbose True --train_verbose True --local_test True --lr 3e-4
+# Usage
 
-Resume
+This section of the README walks through how to train and sample from a model.
 
-python main.py --command train --model_path ./saved_models/res_2d_attn_sst --data_dir ../data/tccs/ocean/SST_modified --patch_size 64 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 2 --epochs 3 --batch_size 8 --resume True --iter -1 --train_verbose True --local_test True
+## Installation
 
-python main.py --command train --model_path ./saved_models/simple_model_sst --data_dir ../data/tccs/ocean/SST_modified --patch_size 64 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 2 --epochs 3 --batch_size 8 --resume True --iter -1 --train_verbose True --local_test True
+Clone this repository and navigate to it in your terminal. Activate your environment. Then run:
 
-Compression
+```
+pip install -r requirements.txt
+```
 
-python main.py --command compress --verbose False --model_path ./saved_models/testing-res_1--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch\=000-val_mse_loss\=111.02807-val_loss\=555.14618.pt --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type res_1 --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/testing_res_1
+This should install the all required python packages that the scripts depend on.
 
-python main.py --command compress --verbose False --model_path ./saved_models/testing-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch\=000-val_mse_loss\=22.63494-val_loss\=113.23413.pt --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/testing_hierachical
+## Preparing Data
 
-Decompression
+The training data is the Subsurface Sea Temperature (SST). The data has been modified to have the same dimension across all netCDF files. The folder containing all files are at ["Geohub"]()
 
-python main.py --command decompress --verbose False --model_path ./saved_models/testing-res_1--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch\=000-val_mse_loss\=111.02807-val_loss\=555.14618.pt --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type res_1 --input_path ./outputs/testing_res_1 --output_path ./outputs/decompression_testing_res_1
+During training, all netCDF files are automatically processed to become suitable data types before being fed into the model. Simply pass `--data_dir path/to/folder` to the training script, and it will take care of the rest.
 
-python main.py --command decompress --verbose True --model_path ./saved_models/testing-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch\=000-val_mse_loss\=1.44076-val_loss\=7.50242.pt --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical --input_path ./outputs/testing_hierachical --output_path ./outputs/decompression_testing_hierachical
+## Training
 
-Get data
+To train your model, you should first decide some hyperparameters. We will split up our hyperparameters into three groups: model architecture, data infomation, and training flags. Here are some reasonable defaults for a baseline:
 
-python main.py --command get_data --verbose True --model_path ./saved_models/hierachical-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical --input_path ./outputs/hier_SST.051001-051912/ --output_path ./outputs/get_data_hier_SST.051001-051912 --batch_size 128
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+```
+
+Once you have setup your hyper-parameters, you can run an experiment like so:
+
+```
+python main.py --command train --verbose True --data_dir path/to/images --model_path /path/to/save/model $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
+```
+
+The logs and saved models will be written to a logging directory determined by the `OPENAI_LOGDIR` environment variable. If it is not set, then a temporary directory will be created in `/tmp_logs`.
+
+The above training script saves checkpoints to `.pt` files in the saved directory, which is defined in `--model_path`. These checkpoints will have names like `sst-epoch=008-val_mse_loss=0.01161-val_loss=0.07661.pt`.
+
+## Resume training
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+```
+
+```
+python main.py --command train --verbose True --data_dir path/to/images --model_path /path/to/save/model $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS --resume True --iter -1
+```
+
+To be updated
+
+## Compression
+
+Once you have a path to your model, you can compress a similar file like so:
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+```
+
+The patch size can be changed (should be a power of 2). The default value for the patch size is 256. With the hyperparameters defined, we can run the following command to compress the data:
+
+```
+python main.py --command compress --data_dir path/to/images --model_path /path/to/save/model $MODEL_FLAGS $DATA_FLAGS --input_path /path/to/nc/file.nc --output_path /path/to/output/folder --batch_size 128
+```
+
+The batch size should be changed according to the GPU memory. This will output the compressed data and store them in the `output_path`. This command also handle meta data for the input file.
+
+## Get data based on bounding box
+
+Similar to the compression, we need to define sets of hyperparameters. The only difference is that we need to define the bounding box for the data we want to get.
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+```
+
+With the hyperparameters defined, we can run the following command to get the data:
+
+```
+python main.py --command get_data --data_dir path/to/images --model_path /path/to/save/model $MODEL_FLAGS $DATA_FLAGS --input_path /path/to/compressed/data/folder/ --output_path /path/to/output/folder --batch_size 128
+```
+
+Again, the batch size can be adjusted. **The patch size argument should match the one used for compression**. The output will be a netCDF file with the same dimension as the original file.
+
+## Examples
+
+**Training**
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+```
+
+```
+python main.py --command train --data_dir ../data/tccs/ocean/SST_modified --model_path ./saved_models/hierarchical_model --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
+```
+
+**Compression**
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+```
+
+```
+python main.py --command compress --verbose False --model_path ./saved_models/hierachical-model/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/compressed_data
+```
+
+**Get data**
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+```
+
+```
+python main.py --command get_data --verbose True --model_path ./saved_models/hierachical-model/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ./outputs/hier_SST.051001-051912/ --output_path ./outputs/get_data_hier_SST.051001-051912 --batch_size 128
+```
