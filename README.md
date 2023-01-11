@@ -104,7 +104,7 @@ TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
 ```
-python main.py --command train --data_dir ../data/tccs/ocean/SST_modified --model_path ./saved_models/hierarchical_model --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
+python main.py --command train --data_dir ../data/tccs/ocean/SST_modified --model_path ./examples/trained_hierarchical_models --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
 ```
 
 **Compression**
@@ -115,7 +115,7 @@ DATA_FLAGS="--data_height 2400 --data_width 3600"
 ```
 
 ```
-python main.py --command compress --verbose False --model_path ./saved_models/hierachical-model/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/compressed_data
+python main.py --command compress --verbose False --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/compressed_data  --batch_size 128
 ```
 
 **Get data**
@@ -127,5 +127,5 @@ GET_DATA_FLAGS="--start_time 0 --end_time 5 --start_pos_x 524 --start_pos_y 234 
 ```
 
 ```
-python main.py --command get_data --verbose True --model_path ./saved_models/hierachical-model/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS $GET_DATA_FLAGS --input_path ./outputs/hier_SST.051001-051912/ --output_path ./outputs/get_data_hier_SST.051001-051912 --batch_size 128
+python main.py --command get_data --verbose True --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS $GET_DATA_FLAGS --input_path ./outputs/compressed_data/ --output_path ./outputs/get_data_compressed_data --batch_size 128
 ```
