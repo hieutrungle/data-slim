@@ -774,6 +774,31 @@ def _model_conf(
             ],
             "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
         }
+    elif arch.startswith("hier_mbconv_single_cell_block"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, 24, 24, 1),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                MBConvConfig(4, 3, 2, 64, 128, 1),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 1, 128, 160, 1),
+                MBConvConfig(6, 3, 2, 160, 256, 1),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, 256, 160, 1),
+                DecMBConvConfig(6, 3, 1, 160, 128, 1),
+            ],
+            "decoder_0": [
+                DecMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 1),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
     elif arch.startswith("hier_mbconv_1"):
         inverted_residual_setting = {
             "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
