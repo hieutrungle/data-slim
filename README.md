@@ -29,7 +29,7 @@ To train your model, you should first decide some hyperparameters. We will split
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"
-TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
 Once you have setup your hyper-parameters, you can run an experiment like so:
@@ -47,7 +47,7 @@ The above training script saves checkpoints to `.pt` files in the saved director
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"
-TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
 ```
@@ -100,7 +100,7 @@ Again, the batch size can be adjusted. **The patch size argument should match th
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"
-TRAIN_FLAGS="--lr 3e-4 --batch_size 128 -epochs 100 --train_verbose True"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
 ```
