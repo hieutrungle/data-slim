@@ -24,4 +24,3 @@ outputs/
 *.vscode
 **/tutorial*
 dask-worker-space/
-*.ipynb
