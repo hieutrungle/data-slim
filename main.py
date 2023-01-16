@@ -47,7 +47,7 @@ def main(args):
             **utils.args_to_dict(args, utils.model_defaults().keys())
         )
     else:
-        raise ValueError("Invalid model type.")
+        raise ValueError(f"Invalid model type ({args.model_type}).")
 
     model = model.to(torch.device(DEVICE))
     stats = None
@@ -79,7 +79,7 @@ def main(args):
             summary(
                 model,
                 model.input_shape,
-                depth=3,
+                depth=5,
                 col_names=(
                     "input_size",
                     "output_size",
