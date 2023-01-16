@@ -619,7 +619,6 @@ class Block(nn.Module):
             )
 
         layers: List[nn.Module] = []
-        # print(f"norm_layer: {norm_layer}")
 
         # building inverted residual blocks
         total_stage_blocks = sum(cnf.num_layers for cnf in inverted_residual_setting)
@@ -658,7 +657,7 @@ class Block(nn.Module):
         self.features = nn.Sequential(*layers)
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
@@ -697,11 +696,6 @@ def _hierarchical_block(
                 **kwargs,
             )
         )
-
-    # model = nn.Sequential(*layers)
-
-    # if weights is not None:
-    #     model.load_state_dict(weights.get_state_dict(progress=progress))
 
     return layers
 
@@ -774,31 +768,7 @@ def _model_conf(
             ],
             "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
         }
-    elif arch.startswith("hier_mbconv_single_cell_block"):
-        inverted_residual_setting = {
-            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
-            "encoder_0": [
-                FusedMBConvConfig(1, 3, 1, 24, 24, 1),
-                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
-                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
-                MBConvConfig(4, 3, 2, 64, 128, 1),
-            ],
-            "encoder_1": [
-                MBConvConfig(6, 3, 1, 128, 160, 1),
-                MBConvConfig(6, 3, 2, 160, 256, 1),
-            ],
-            "decoder_1": [
-                DecMBConvConfig(6, 3, 2, 256, 160, 1),
-                DecMBConvConfig(6, 3, 1, 160, 128, 1),
-            ],
-            "decoder_0": [
-                DecMBConvConfig(4, 3, 2, 128, 64, 1),
-                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
-                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
-                DecFusedMBConvConfig(1, 3, 1, 24, 24, 1),
-            ],
-            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
-        }
+
     elif arch.startswith("hier_mbconv_1"):
         inverted_residual_setting = {
             "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
@@ -897,47 +867,118 @@ def _model_conf(
             ],
             "post_block": [PostBlockConfig(1, 3, 1, pre_num_channels, 1, 1)],
         }
+    elif arch.startswith("hier_mbconv_single_cell_block_3"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, 24, 24, 1),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                FusedMBConvConfig(4, 3, 2, 64, 128, 1),
+            ],
+            "encoder_1": [
+                FusedMBConvConfig(6, 3, 1, 128, 160, 1),
+                MBConvConfig(6, 3, 2, 160, 256, 1),
+            ],
+            "encoder_2": [
+                MBConvConfig(6, 3, 1, 256, 320, 1),
+                MBConvConfig(6, 3, 2, 320, 512, 1),
+            ],
+            "decoder_2": [
+                DecMBConvConfig(6, 3, 1, 512, 320, 1),
+                DecMBConvConfig(6, 3, 2, 320, 256, 1),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, 256, 160, 1),
+                DecFusedMBConvConfig(6, 3, 1, 160, 128, 1),
+            ],
+            "decoder_0": [
+                DecFusedMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 1),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_single_cell_block_2"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(1, 3, 1, 24, 24, 1),
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                FusedMBConvConfig(4, 3, 2, 64, 128, 1),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 1, 128, 160, 1),
+                MBConvConfig(6, 3, 2, 160, 256, 1),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, 256, 160, 1),
+                DecMBConvConfig(6, 3, 1, 160, 128, 1),
+            ],
+            "decoder_0": [
+                DecFusedMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+                DecFusedMBConvConfig(1, 3, 1, 24, 24, 1),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_reduced_single_cell_block_3"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                FusedMBConvConfig(4, 3, 2, 64, 128, 1),
+            ],
+            "encoder_1": [
+                FusedMBConvConfig(6, 3, 2, 128, 256, 1),
+            ],
+            "encoder_2": [
+                MBConvConfig(6, 3, 2, 256, 512, 1),
+            ],
+            "decoder_2": [
+                DecMBConvConfig(6, 3, 2, 512, 256, 1),
+            ],
+            "decoder_1": [
+                DecFusedMBConvConfig(6, 3, 2, 256, 128, 1),
+            ],
+            "decoder_0": [
+                DecFusedMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+    elif arch.startswith("hier_mbconv_reduced_single_cell_block_2"):
+        inverted_residual_setting = {
+            "pre_block": [PreBlockConfig(1, 3, 1, 1, 24, 1)],
+            "encoder_0": [
+                FusedMBConvConfig(4, 3, 2, 24, 48, 1),
+                FusedMBConvConfig(4, 3, 2, 48, 64, 1),
+                FusedMBConvConfig(4, 3, 2, 64, 128, 1),
+            ],
+            "encoder_1": [
+                MBConvConfig(6, 3, 2, 128, 256, 1),
+            ],
+            "decoder_1": [
+                DecMBConvConfig(6, 3, 2, 256, 128, 1),
+            ],
+            "decoder_0": [
+                DecFusedMBConvConfig(4, 3, 2, 128, 64, 1),
+                DecFusedMBConvConfig(4, 3, 2, 64, 48, 1),
+                DecFusedMBConvConfig(4, 3, 2, 48, 24, 1),
+            ],
+            "post_block": [PostBlockConfig(1, 3, 1, 24, 1, 1)],
+        }
+
     else:
         raise ValueError(f"Unsupported model type {arch}")
 
     last_channel = 10
     return inverted_residual_setting, last_channel
-
-
-def hierarchical_model(
-    *,
-    weights: Optional[None] = None,
-    progress: bool = True,
-    **kwargs: Any,
-):
-    """
-    Constructs an EfficientNetV2-S architecture from
-    `EfficientNetV2: Smaller Models and Faster Training <https://arxiv.org/abs/2104.00298>`_.
-    Args:
-        weights (:class:`~torchvision.models.EfficientNet_V2_S_Weights`, optional): The
-            pretrained weights to use. See
-            :class:`~torchvision.models.EfficientNet_V2_S_Weights` below for
-            more details, and possible values. By default, no pre-trained
-            weights are used.
-        progress (bool, optional): If True, displays a progress bar of the
-            download to stderr. Default is True.
-        **kwargs: parameters passed to the ``torchvision.models.efficientnet.EfficientNet``
-            base class. Please refer to the `source code
-            <https://github.com/pytorch/vision/blob/main/torchvision/models/efficientnet.py>`_
-            for more details about this class.
-    .. autoclass:: torchvision.models.EfficientNet_V2_S_Weights
-        :members:
-    """
-    # weights = EfficientNet_V2_S_Weights.verify(weights)
-
-    inverted_residual_setting, last_channel = _model_conf("hier_mbconv")
-    return _hierarchical_block(
-        inverted_residual_setting,
-        0.0,
-        weights,
-        progress,
-        **kwargs,
-    )
 
 
 class VQCPVAE(basemodel.BaseModel):
