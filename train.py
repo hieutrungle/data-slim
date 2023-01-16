@@ -106,16 +106,16 @@ class Compressor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
+        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.5
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         self.log("mse_loss", mse_loss, prog_bar=True)
         self.log("quantized_loss", quantized_loss, prog_bar=True)
         self.log("fft_mse_loss", fft_mse_loss, prog_bar=True)
-        self.log("train_loss", loss, on_epoch=True)
+        self.log("train_loss", loss, on_epoch=True, sync_dist=True)
         self.log("lr", cur_lr, prog_bar=True, on_step=True)
-        self.log("hp/train_loss", loss)
-        self.log("hp/train_mse", mse_loss)
+        self.log("hp/train_loss", loss, sync_dist=True)
+        self.log("hp/train_mse", mse_loss, sync_dist=True)
 
         return loss
 
@@ -132,10 +132,10 @@ class Compressor(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
         loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
-        self.log("test_mse_loss", mse_loss)
-        self.log("test_quantized_loss", quantized_loss)
-        self.log("test_fft_mse_loss", fft_mse_loss)
-        self.log("test_loss", loss, on_epoch=True)
+        self.log("test_mse_loss", mse_loss, sync_dist=True)
+        self.log("test_quantized_loss", quantized_loss, sync_dist=True)
+        self.log("test_fft_mse_loss", fft_mse_loss, sync_dist=True)
+        self.log("test_loss", loss, on_epoch=True, sync_dist=True)
 
     def compress(self, x):
         return self.model.compress(x)
@@ -251,7 +251,7 @@ def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):
     callbacks = [
-        EarlyStopping("val_loss", patience=11, mode="min"),
+        EarlyStopping("val_loss", patience=15, mode="min"),
         ModelCheckpoint(
             save_top_k=3,
             monitor="val_loss",
