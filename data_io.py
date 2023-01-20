@@ -420,11 +420,12 @@ class DisjointDataGen(BaseDataGen):
         elif len(ds[self.ds_name].shape) == 3:
             das = ds[self.ds_name]
         das = das * masks
-        das = das.fillna(fillna_value)
 
         # masks = 0 where das is nan, otherwise 1
         masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
         masks = masks.to_numpy()
+
+        das = das.fillna(fillna_value)
 
         return (das, masks)
 
@@ -521,8 +522,9 @@ class OverlappingDataGen(BaseDataGen):
     def on_epoch_end(self):
         self.time_idx = -1
         self.da = None
-        if self.ds == None or self.shuffle:
+        if self.shuffle:
             random.shuffle(self.filenames)
+        if self.ds == None:
             (self.ds, mask) = self.get_xarray_data(self.filenames, self.fillna_value)
             mask = mask[np.newaxis, ..., np.newaxis]
             self.mask = self.sliding_window.pad_data(mask)
@@ -557,11 +559,12 @@ class OverlappingDataGen(BaseDataGen):
         elif len(ds[self.ds_name].shape) == 3:
             das = ds[self.ds_name]
         das = das * masks
-        das = das.fillna(fillna_value)
 
         # masks = 0 where das is nan, otherwise 1
         masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
         masks = masks.to_numpy()
+
+        das = das.fillna(fillna_value)
 
         return (das, masks)
 
@@ -664,6 +667,7 @@ class TrainOverlappingDataGen(BaseDataGen):
         self.da = None
         if self.ds == None or self.shuffle:
             random.shuffle(self.filenames)
+        if self.ds == None:
             (self.ds, weighted_mask) = self.get_xarray_data(
                 self.filenames, self.fillna_value
             )
