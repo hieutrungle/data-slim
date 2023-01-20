@@ -74,7 +74,7 @@ class Dataio:
 
         # Train data loader
         logger.log(f"number of train_files: {len(train_files)}")
-        train_dataset = self.create_train_generator(
+        train_dataset = self.create_overlapping_generator(
             train_files, ds_name, fillna_value=fillna_value, name="train", shuffle=True
         )
         train_ds = self.get_data_loader(
@@ -420,12 +420,11 @@ class DisjointDataGen(BaseDataGen):
         elif len(ds[self.ds_name].shape) == 3:
             das = ds[self.ds_name]
         das = das * masks
+        das = das.fillna(fillna_value)
 
         # masks = 0 where das is nan, otherwise 1
         masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
         masks = masks.to_numpy()
-
-        das = das.fillna(fillna_value)
 
         return (das, masks)
 
@@ -558,12 +557,11 @@ class OverlappingDataGen(BaseDataGen):
         elif len(ds[self.ds_name].shape) == 3:
             das = ds[self.ds_name]
         das = das * masks
+        das = das.fillna(fillna_value)
 
         # masks = 0 where das is nan, otherwise 1
         masks = xr.where(das[0, ::-1, :].isnull(), 0, 1)
         masks = masks.to_numpy()
-
-        das = das.fillna(fillna_value)
 
         return (das, masks)
 
@@ -694,9 +692,9 @@ class TrainOverlappingDataGen(BaseDataGen):
         weighted_mask = xr.where(weighted_mask == -13, 0.8, weighted_mask)
         weighted_mask = xr.where(weighted_mask == -1, 0.0, weighted_mask)
         weighted_mask = xr.where(weighted_mask >= 8, 1.5, weighted_mask)
-        weighted_mask = xr.where(weighted_mask >= 3, 2.5, weighted_mask)
-        weighted_mask = xr.where(weighted_mask == 2, 3, weighted_mask)
-        weighted_mask = xr.where(weighted_mask == 1.5, 2, weighted_mask)
+        weighted_mask = xr.where(weighted_mask >= 3, 2, weighted_mask)
+        # weighted_mask = xr.where(weighted_mask == 2, 3, weighted_mask)
+        # weighted_mask = xr.where(weighted_mask == 1.5, 2, weighted_mask)
         weighted_mask = weighted_mask[::-1, :]
         weighted_mask = weighted_mask.to_numpy()
 
