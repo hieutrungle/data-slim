@@ -106,7 +106,8 @@ class Compressor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.5
+        # loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.25
+        loss = mse_loss * self.mse_weight + quantized_loss
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         self.log("mse_loss", mse_loss, prog_bar=True)
@@ -213,9 +214,9 @@ def train(
         log_every_n_steps=log_interval,
         logger=tfboard_logger,
         callbacks=_callbacks,
-        limit_val_batches=limit_val_batches,
-        limit_train_batches=limit_train_batches,
-        limit_test_batches=limit_test_batches,
+        # limit_val_batches=limit_val_batches,
+        # limit_train_batches=limit_train_batches,
+        # limit_test_batches=limit_test_batches,
         gradient_clip_algorithm="norm",
         enable_progress_bar=train_verbose,
     )
@@ -251,7 +252,7 @@ def get_callbacks(
     checkpoints_dir, weight_filename="{epoch:03d}-{train_loss:.2f}", verbose=False
 ):
     callbacks = [
-        EarlyStopping("val_loss", patience=15, mode="min"),
+        EarlyStopping("val_loss", patience=25, mode="min"),
         ModelCheckpoint(
             save_top_k=3,
             monitor="val_loss",
