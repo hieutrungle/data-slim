@@ -213,9 +213,9 @@ def train_defaults():
     """
     return dict(
         epochs=100,
-        lr=3e-4,
-        warm_up_portion=0.2,
-        weight_decay=1e-5,  # optimizer
+        lr=4e-4,
+        warm_up_portion=0.15,
+        weight_decay=1e-4,  # optimizer
         log_interval=2_500,
         save_interval=10,
         train_verbose=False,
