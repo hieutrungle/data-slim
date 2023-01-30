@@ -20,6 +20,136 @@ DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
 NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
 
 
+def get_data_info(data: np.ndarray):
+    logger.log(f"data shape: {data.shape}")
+    logger.log(f"maximum value: {data.max()}")
+    logger.log(f"minimum value: {data.min()}\n")
+
+
+def get_files(train_glob, random_seed=None):
+    """Get all file in a given path"""
+    random.seed(random_seed)
+    files = glob.glob(os.path.join(train_glob, "*"))
+    random.shuffle(files)
+    return files
+
+
+def split_train_val_test_tf(
+    ds,
+    ds_size,
+    train_split=0.95,
+    val_split=0.025,
+    test_split=0.025,
+    shuffle=True,
+    shuffle_size=10000,
+    random_seed=None,
+):
+    # Use tensorflow to split data into train + val + test, compatible with tf.data API
+    assert (train_split + test_split + val_split) == 1
+
+    if shuffle:
+        # Specify seed to always have the same split distribution between runs
+        ds = ds.shuffle(shuffle_size, seed=random_seed)
+
+    train_size = int(np.ceil(train_split * ds_size))
+    val_size = int(np.ceil(val_split * ds_size))
+
+    train_ds = ds.take(train_size)
+    val_ds = ds.skip(train_size).take(val_size)
+    test_ds = ds.skip(train_size).skip(val_size)
+
+    return train_ds, val_ds, test_ds
+
+
+def split_train_val_tf(
+    ds, ds_size, train_size=0.95, shuffle=True, shuffle_size=10000, random_seed=None
+):
+    # Use tensorflow to split data into train + val, compatible with tf.data API
+    assert train_size <= 1, "Split proportion must be in [0, 1]"
+    assert train_size >= 0, "Split proportion must be in [0, 1]"
+
+    if shuffle:
+        # Specify seed to always have the same split distribution between runs
+        ds = ds.shuffle(shuffle_size, seed=random_seed)
+
+    train_size = int(np.ceil(train_size * ds_size))
+
+    train_ds = ds.take(train_size)
+    val_ds = ds.skip(train_size)
+
+    return train_ds, val_ds
+
+
+def split_train_val_test_pd(
+    df, train_split=0.95, val_split=0.025, test_split=0.025, random_seed=None
+):
+    # Use pandas to split data into train + val + test, compatible with pandas DataFrame
+    assert (train_split + test_split + val_split) == 1
+
+    # Only allows for equal validation and test splits
+    assert val_split == test_split
+
+    # Specify seed to always have the same split distribution between runs
+    df_sample = df.sample(frac=1, random_state=random_seed)
+    indices_or_sections = [
+        int(train_split * len(df)),
+        int((1 - val_split - test_split) * len(df)),
+    ]
+
+    train_ds, val_ds, test_ds = np.split(df_sample, indices_or_sections)
+
+    return train_ds, val_ds, test_ds
+
+
+def split_train_val_pd(df, train_size=0.95, random_seed=None):
+    # Use pandas to split data into train + val, compatible with pandas DataFrame
+    assert train_size <= 1, "Split proportion must be in [0, 1]"
+    assert train_size >= 0, "Split proportion must be in [0, 1]"
+
+    # Specify seed to always have the same split distribution between runs
+    df_sample = df.sample(frac=1, random_state=random_seed)
+    indices_or_sections = [int(train_size * len(df)), len(df)]
+
+    train_ds, val_ds = np.split(df_sample, indices_or_sections)
+
+    return train_ds, val_ds
+
+
+def split_train_test_np(df, train_size=0.95, random_seed=None):
+    assert train_size <= 1, "Split proportion must be in [0, 1]"
+    assert train_size >= 0, "Split proportion must be in [0, 1]"
+
+    np.random.seed(random_seed)
+    split = np.random.choice(range(df.shape[0]), int(train_size * df.shape[0]))
+    train_ds = df[split]
+    test_ds = df[~split]
+
+    logger.log(f"train_ds.shape : {train_ds.shape}")
+    logger.log(f"test_ds.shape : {test_ds.shape}")
+    return train_ds, test_ds
+
+
+def get_raw_data(file: str):
+    """read binary files"""
+    with open(file, "rb") as f:
+        data = f.read()
+        logger.log(
+            f"Name of the training dataset: {file}; "
+            f"Length of file: {len(data):,} bytes"
+        )
+
+        if file[-4:] == ".txt":
+            data = data.decode().split("\n")
+        # If the input file is a standard file,
+        # there is a chance that the last line could simply be an empty line;
+        # if this is the case, then remove the empty line
+        if data[len(data) - 1] == "":
+            data.remove("")
+        data = np.array(data)
+        data = data.astype("float32")
+    return data
+
+
 def mkdir_if_not_exist(path):
     if not os.path.exists(path):
         os.makedirs(path)
