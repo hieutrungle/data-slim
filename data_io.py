@@ -382,8 +382,9 @@ class DisjointDataGen(BaseDataGen):
     def on_epoch_end(self):
         self.time_idx = -1
         self.da = None
-        if self.ds == None or self.shuffle:
+        if self.shuffle:
             random.shuffle(self.filenames)
+        if self.ds == None:
             (self.ds, self.mask) = self.get_xarray_data(
                 self.filenames, self.fillna_value
             )
@@ -739,3 +740,77 @@ class TrainOverlappingDataGen(BaseDataGen):
             window = self.transform(window)
             window_weighted_mask = self.transform(window_weighted_mask)
         return window, window_weighted_mask
+
+
+class DisjointBinaryData(BaseDataGen):
+    """Data generator for disjoint patchers."""
+
+    def __init__(
+        self,
+        filenames,
+        ds_name,
+        batch_size,
+        patch_size,
+        data_shape,
+        fillna_value=0,
+        shuffle=False,
+        name=None,
+        transform=None,
+    ):
+        super().__init__(
+            filenames=filenames,
+            ds_name=ds_name,
+            batch_size=batch_size,
+            data_shape=data_shape,
+            patch_size=patch_size,
+            shuffle=shuffle,
+            fillna_value=fillna_value,
+            name=name,
+            transform=transform,
+        )
+
+        self.num_outputs = 2
+        if len(data_shape) == 4:
+            self.padder = padder.Padder2D(patch_size, data_shape)
+        elif len(data_shape) == 5:
+            self.padder = padder.Padder3D(patch_size, data_shape)
+        else:
+            raise ValueError("data shape must be of length 4 or 5.")
+        self.ds = utils.get_raw_data(filenames)
+        self.ds = np.reshape(self.ds, data_shape)
+        self.num_time_slices = self.ds.shape[0]
+        self.num_patch_per_time_slice = (self.padder.padded_shape[1] // patch_size) * (
+            self.padder.padded_shape[2] // patch_size
+        )
+        self.num_patches = self.ds.shape[0] * self.num_patch_per_time_slice
+
+        num_batches = self.num_patches / batch_size
+        self.num_batches = int(
+            num_batches if self.num_patches % batch_size == 0 else num_batches + 1
+        )
+
+        num_batch_per_time_slice = self.num_patch_per_time_slice / batch_size
+        self.num_batch_per_time_slice = int(
+            num_batch_per_time_slice
+            if self.num_patch_per_time_slice % batch_size == 0
+            else num_batch_per_time_slice + 1
+        )
+
+    def __getitem__(self, index):
+        # return data and its mask
+        time_idx = index // self.num_patch_per_time_slice
+        if time_idx > self.time_idx:
+            self.time_idx = time_idx
+            da = self.ds[time_idx]
+            da = da.to_numpy()[::-1, :]
+            da = da[np.newaxis, ..., np.newaxis]
+            da = self.padder.pad_data(da)
+            self.da = self.padder.split_data(da)
+        da_idx = index % self.num_patch_per_time_slice
+
+        sample = self.da[da_idx]
+        mask = self.mask[da_idx]
+        if self.transform:
+            sample = self.transform(sample)
+            mask = self.transform(mask)
+        return sample, mask
