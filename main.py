@@ -53,14 +53,14 @@ def main(args):
     stats = None
     if args.data_dir != "":
         try:
-            stats = utils.get_data_statistics(args.data_dir)
+            stats = utils.get_netcdf_data_stats(args.data_dir)
             stat_dir = args.data_dir
         except Exception as e:
             logger.log(f"No statistics file available at data_dir: {args.data_dir}")
             logger.error(e)
     if args.input_path != "":
         try:
-            stats = utils.get_data_statistics(args.input_path)
+            stats = utils.get_netcdf_data_stats(args.input_path)
             stat_dir = args.input_path
         except Exception as e:
             logger.log(f"No statistics file available at input_path: {args.input_path}")
