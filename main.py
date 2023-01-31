@@ -50,14 +50,17 @@ def main(args):
         raise ValueError(f"Invalid model type ({args.model_type}).")
     model = model.to(torch.device(DEVICE))
 
-    data_path = (
-        args.data_dir
-        if args.data_dir != ""
-        else Path(args.input_path).parent.absolute()
-    )
-    if data_path == "":
-        raise ValueError("No input path or data path provided.")
-    stats = utils.get_data_stats(args.data_type, data_path)
+    # Get data stats.
+    data_path = ""
+    if args.data_dir != "":
+        data_path = (
+            Path(args.data_dir).parent.absolute()
+            if os.path.isfile(args.data_dir)
+            else args.data_dir
+        )
+    else:
+        data_path = Path(args.input_path).parent.absolute()
+    stats = utils.get_data_stats(args.data_type, data_path, args.ds_name)
     model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
     logger.log(
         f"Model initialization time: {time.perf_counter() - start_time:0.4f} seconds\n"

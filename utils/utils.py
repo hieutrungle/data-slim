@@ -15,6 +15,7 @@ from skimage.io.collection import alphanumeric_key
 import torch
 import argparse
 import errno
+import math
 
 DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
 NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
@@ -195,20 +196,49 @@ def get_netcdf_data_stats(data_path):
     return stats
 
 
-def get_binary_data_stats(data):
+def get_binary_data_stats(data_path, data_name):
+    filenames = glob.glob(os.path.join(data_path, "*.txt"))
+    print(f"filenames: {filenames}")
+    filename = [
+        filename for filename in filenames if filename.lower().find("property") != -1
+    ]
+    print(f"data_name: {data_name}")
     stats = {}
-    stats["mean"] = np.nanmean(data)
-    stats["median"] = np.nanmedian(data)
-    stats["std"] = np.nanstd(data)
+    with open(filename[0], "r") as f:
+        is_recording = False
+        for line in f.readlines():
+            if line.find(data_name) != -1:
+                is_recording = True
+            if is_recording == True:
+                print(line)
+                if line.lower().find("avg") != -1:
+                    stats["mean"] = float(line.split("=")[1])
+                elif line.lower().find("variance") != -1:
+                    stats["variance"] = float(line.split("=")[1])
+                    stats["std"] = math.sqrt(stats["variance"])
+                elif line.lower().find("min") != -1:
+                    stats["min"] = float(line.split("=")[1])
+                elif line.lower().find("max") != -1:
+                    stats["max"] = float(line.split("=")[1])
+                elif line.find("valueRange") != -1:
+                    stats["valueRange"] = float(line.split("=")[1])
+                elif line.find("numOfElem") != -1:
+                    stats["numOfElem"] = int(line.split("=")[1])
+                elif line.find("totalDataSize") != -1:
+                    text = "".join(line.split("=")[1])
+                    text = text.strip().split(" ")[0]
+                    stats["totalDataSize"] = int(text)
+                if line.lower().find("===========") != -1:
+                    break
     return stats
 
 
-def get_data_stats(data_type, data_path=None):
+def get_data_stats(data_type, data_path, data_name=None):
+    # data_path is a folder containing the data and stat file
     if data_type == "netcdf":
         stats = get_netcdf_data_stats(data_path)
     elif data_type == "binary":
-        data = get_raw_data(data_path)
-        stats = get_binary_data_stats(data)
+        stats = get_binary_data_stats(data_path, data_name)
     return stats
 
 

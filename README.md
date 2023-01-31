@@ -101,7 +101,7 @@ For netcdf data, we can use the following command to train the model:
 
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
-DATA_FLAGS="--data_height 2400 --data_width 3600"
+DATA_FLAGS="--data_height 2400 --data_width 3600 --data_type netcdf"
 TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
@@ -113,7 +113,7 @@ For binary data (.f32), we can use the following command to train the model:
 
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
-DATA_FLAGS="--data_height 2400 --data_width 3600"
+DATA_FLAGS="--data_height 2400 --data_width 3600  --data_type binary"
 TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
 ```
 
