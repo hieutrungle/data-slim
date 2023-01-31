@@ -86,7 +86,7 @@ def main(args):
         start_time = time.perf_counter()
         dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
         train_ds, test_ds = dataio.get_train_test_data_loader(
-            args.data_dir, args.ds_name, local_test=args.local_test
+            args.data_dir, args.data_type, args.ds_name, local_test=args.local_test
         )
         logger.log(f"I/O time: {time.perf_counter() - start_time:0.4f} seconds\n")
 

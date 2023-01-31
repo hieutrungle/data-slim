@@ -65,31 +65,48 @@ class Dataio:
         else:
             raise ValueError("data shape must be of length 4 or 5.")
 
-    def get_train_test_data_loader(self, data_dir, ds_name, local_test=False):
-        filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
-        if local_test:
-            filenames = filenames[:2]
-        split = int(len(filenames) * 0.99)
-        train_files = filenames[:split]
+    def get_train_test_data_loader(
+        self, data_dir, data_type, ds_name, local_test=False
+    ):
+        if data_type.lower().find("netcdf") != -1:
+            filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
+            if local_test:
+                filenames = filenames[:2]
+            split = int(len(filenames) * 0.99)
+            train_files = filenames[:split]
 
-        # Train data loader
-        logger.log(f"number of train_files: {len(train_files)}")
-        train_dataset = self.create_overlapping_generator(
-            train_files, ds_name, fillna_value=fillna_value, name="train", shuffle=True
-        )
+            # Train data
+            logger.log(f"number of train_files: {len(train_files)}")
+            train_dataset = self.create_overlapping_generator(
+                train_files,
+                ds_name,
+                fillna_value=fillna_value,
+                name="train",
+                shuffle=True,
+            )
+            # Test data
+            test_files = filenames[split:]
+            logger.log(f"number of test_files: {len(test_files)}")
+            test_dataset = self.create_disjoint_generator(
+                test_files,
+                ds_name,
+                fillna_value=fillna_value,
+                name="test",
+                shuffle=False,
+            )
+        elif data_type.lower().find("binary") != -1:
+            # TODO: create pytorch data for binary data
+            pass
+        else:
+            raise ValueError(f"{data_type} is not supported")
+
+        # data loader
         train_ds = self.get_data_loader(
             train_dataset,
             drop_last=True,
             shuffle=True,
             num_workers=4 * NUM_GPUS,
             pin_memory=True,
-        )
-
-        # Test data loader
-        test_files = filenames[split:]
-        logger.log(f"number of test_files: {len(test_files)}")
-        test_dataset = self.create_disjoint_generator(
-            test_files, ds_name, fillna_value=fillna_value, name="test", shuffle=False
         )
         test_ds = self.get_data_loader(test_dataset, num_workers=4 * NUM_GPUS)
         return train_ds, test_ds
