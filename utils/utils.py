@@ -137,7 +137,6 @@ def get_raw_data(file: str):
             f"Name of the training dataset: {file}; "
             f"Length of file: {len(data):,} bytes"
         )
-
         if file[-4:] == ".txt":
             data = data.decode().split("\n")
         # If the input file is a standard file,
@@ -168,7 +167,7 @@ def get_filenames(data_path, postfix=".nc", random_seed=None):
     return filenames
 
 
-def get_data_statistics(data_path):
+def get_netcdf_data_stats(data_path):
     if os.path.isfile(data_path):
         # data_path is a single file, look into the parent
         # directory to find the statistics file
@@ -195,10 +194,19 @@ def get_binary_data_stats(data):
     return stats
 
 
+def get_data_stats(data_type, data_path=None):
+    if data_type == "netcdf":
+        stats = get_netcdf_data_stats(data_path)
+    elif data_type == "binary":
+        data = get_raw_data(data_path)
+        stats = get_binary_data_stats(data)
+    return stats
+
+
 def get_filenames_and_fillna_value(data_path, postfix=".nc"):
     filenames = get_filenames(data_path, postfix=postfix)
     try:
-        stats = get_data_statistics(data_path)
+        stats = get_netcdf_data_stats(data_path)
         fillna_value = stats["mean"]
     except:
         logger.log("No statistics file found. Using default nan_values = 0.")
@@ -340,7 +348,7 @@ def model_defaults():
         dropout=0.0,
         ema_decay=0.99,
         commitment_cost=0.25,
-        model_type="hierarchical",
+        model_type="hierachical",
         name="",
     )
 
@@ -365,7 +373,7 @@ def data_defaults():
     Defaults for data.
     """
     return dict(
-        data_type="binary",
+        data_type="netcdf",
         data_height=2400,
         data_width=3600,
         data_depth=-1,  # -1 means no depth
