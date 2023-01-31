@@ -48,29 +48,17 @@ def main(args):
         )
     else:
         raise ValueError(f"Invalid model type ({args.model_type}).")
-
     model = model.to(torch.device(DEVICE))
-    stats = None
-    if args.data_dir != "":
-        try:
-            stats = utils.get_netcdf_data_stats(args.data_dir)
-            stat_dir = args.data_dir
-        except Exception as e:
-            logger.log(f"No statistics file available at data_dir: {args.data_dir}")
-            logger.error(e)
-    if args.input_path != "":
-        try:
-            stats = utils.get_netcdf_data_stats(args.input_path)
-            stat_dir = args.input_path
-        except Exception as e:
-            logger.log(f"No statistics file available at input_path: {args.input_path}")
-            logger.error(e)
-    if stats is None:
-        raise ValueError("No statistics file available.")
-    mean = stats["mean"]
-    std = stats["std"]
-    model.set_standardizer_layer(mean, std**2, 1e-6)
-    logger.log(f"Using statistics from {stat_dir}")
+
+    data_path = (
+        args.data_dir
+        if args.data_dir != ""
+        else Path(args.input_path).parent.absolute()
+    )
+    if data_path == "":
+        raise ValueError("No input path or data path provided.")
+    stats = utils.get_data_stats(args.data_type, data_path)
+    model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
     logger.log(
         f"Model initialization time: {time.perf_counter() - start_time:0.4f} seconds\n"
     )
@@ -79,7 +67,7 @@ def main(args):
             summary(
                 model,
                 model.input_shape,
-                depth=5,
+                depth=3,
                 col_names=(
                     "input_size",
                     "output_size",

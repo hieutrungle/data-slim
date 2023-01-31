@@ -97,6 +97,20 @@ Again, the batch size can be adjusted. **The patch size argument should match th
 
 **Training**
 
+For netcdf data, we can use the following command to train the model:
+
+```
+MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True"
+```
+
+```
+python main.py --command train --data_dir ../data/tccs/ocean/SST_modified --model_path ./examples/trained_hierarchical_models --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
+```
+
+For binary data (.f32), we can use the following command to train the model:
+
 ```
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"

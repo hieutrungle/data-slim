@@ -168,16 +168,25 @@ def get_filenames(data_path, postfix=".nc", random_seed=None):
 
 
 def get_netcdf_data_stats(data_path):
-    if os.path.isfile(data_path):
-        # data_path is a single file, look into the parent
-        # directory to find the statistics file
-        filename = Path(data_path)
-        parent_folder = filename.parent.absolute()
-        filename = glob.glob(os.path.join(parent_folder, "*.csv"))[0]
-    elif os.path.isdir(data_path):
+    try:
+        if os.path.isfile(data_path):
+            # data_path is a single file, look into the parent
+            # directory to find the statistics file
+            filename = Path(data_path)
+            data_path = filename.parent.absolute()
+            # filename = glob.glob(os.path.join(data_path, "*.csv"))[0]
+            # elif os.path.isdir(data_path):
+            # else:
+            #     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
+            # if os.path.isfile(glob.glob(os.path.join(data_path, "*.csv"))):
         filename = glob.glob(os.path.join(data_path, "*.csv"))[0]
-    else:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), data_path)
+        logger.log(f"Using statistics from {data_path}")
+    except Exception as e:
+        logger.log(f"Error: {e}")
+        logger.log(
+            f"Cannot find statistics file at {data_path}, using default values; mean=0, median=0, std=1"
+        )
+        return {"mean": 0, "median": 0, "std": 1}
 
     df = pd.read_csv(filename, index_col=0)
     stats = {}
