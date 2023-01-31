@@ -187,6 +187,14 @@ def get_data_statistics(data_path):
     return stats
 
 
+def get_binary_data_stats(data):
+    stats = {}
+    stats["mean"] = np.nanmean(data)
+    stats["median"] = np.nanmedian(data)
+    stats["std"] = np.nanstd(data)
+    return stats
+
+
 def get_filenames_and_fillna_value(data_path, postfix=".nc"):
     filenames = get_filenames(data_path, postfix=postfix)
     try:
@@ -357,6 +365,7 @@ def data_defaults():
     Defaults for data.
     """
     return dict(
+        data_type="binary",
         data_height=2400,
         data_width=3600,
         data_depth=-1,  # -1 means no depth
