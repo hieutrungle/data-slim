@@ -52,6 +52,10 @@ class GenerateCallback(Callback):
 
             pl_module.train()
 
+        if x.shape[1] > 1:
+            x = x[:, 1:2, :, :]
+            x_hat = x_hat[:, 1:2, :, :]
+
         # Plot and add to tensorboard
         imgs = torch.stack([x, x_hat], dim=1).flatten(0, 1)
         grid = torchvision.utils.make_grid(
@@ -66,6 +70,7 @@ class GenerateCallback(Callback):
         x = torch.permute(x, (0, 2, 3, 1)).numpy()
         x_hat = torch.permute(x_hat, (0, 2, 3, 1)).numpy()
         # plot with plt
+
         fig_ = plt.figure(figsize=(36, 12))
         axes = fig_.subplots(nrows=1, ncols=2, sharey=True)
         for i, (image, name) in enumerate(
