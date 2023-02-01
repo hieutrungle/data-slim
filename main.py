@@ -25,6 +25,7 @@ import glob
 import errno
 import numpy as np
 import data_retrival
+import matplotlib.pyplot as plt
 
 
 def main(args):
@@ -51,17 +52,19 @@ def main(args):
     model = model.to(torch.device(DEVICE))
 
     # Get data stats.
-    data_path = ""
-    if args.data_dir != "":
-        data_path = (
-            Path(args.data_dir).parent.absolute()
-            if os.path.isfile(args.data_dir)
-            else args.data_dir
+    data_dir = ""
+    if args.data_path != "":
+        data_dir = (
+            Path(args.data_path).parent.absolute()
+            if os.path.isfile(args.data_path)
+            else args.data_path
         )
     else:
-        data_path = Path(args.input_path).parent.absolute()
-    stats = utils.get_data_stats(args.data_type, data_path, args.ds_name)
+        data_dir = Path(args.input_path).parent.absolute()
+    stats = utils.get_data_stats(args.data_type, data_dir, args.da_name)
+    logger.log(f"data statistics: {stats}")
     model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
+
     logger.log(
         f"Model initialization time: {time.perf_counter() - start_time:0.4f} seconds\n"
     )
@@ -86,7 +89,11 @@ def main(args):
         start_time = time.perf_counter()
         dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
         train_ds, test_ds = dataio.get_train_test_data_loader(
-            args.data_dir, args.data_type, args.ds_name, local_test=args.local_test
+            args.data_path,
+            args.data_type,
+            args.ds_name,
+            args.da_name,
+            local_test=args.local_test,
         )
         logger.log(f"I/O time: {time.perf_counter() - start_time:0.4f} seconds\n")
 
@@ -138,7 +145,7 @@ def main(args):
 
         if args.command == "compress":
             #  Load data
-            ds = dataio.get_compression_data_loader(args.input_path, args.ds_name)
+            ds = dataio.get_compression_data_loader(args.input_path, args.da_name)
             if args.verbose:
                 dataio.log_training_parameters()
 
@@ -162,12 +169,8 @@ def main(args):
                 lower_pos_y = min(args.start_pos_y, args.end_pos_y)
                 higher_pos_y = max(args.start_pos_y, args.end_pos_y)
                 times = (args.start_time, args.end_time)
-                # pad_fronts = dataio.get_padded_dims()[1:-1]
-                # pad_fronts = np.array([pads[0] for pads in pad_fronts])
                 lower_coors = (lower_pos_y, lower_pos_x)
-                # lower_coors = list(np.array(lower_coors) + pad_fronts)
                 upper_coors = (higher_pos_y, higher_pos_x)
-                # upper_coors = list(np.array(upper_coors) + pad_fronts)
                 filenames = data_retrival.get_desired_filenames(filenames, times)
             metadata_file = utils.get_filenames(args.input_path, postfix=".nc")
             filenames.extend(metadata_file)
@@ -221,7 +224,7 @@ def compress_loop(args, model, ds, dataio):
                 logger.log(f"Saving statistics to {stat_path}")
                 logger.log(f"Saving metadata to {metadata_output_file}")
             netcdf_utils.create_dataset_with_only_metadata(
-                args.input_path, metadata_output_file, args.ds_name, args.verbose
+                args.input_path, metadata_output_file, args.da_name, args.verbose
             )
             logger.log(
                 f"Metadata completed in {time.perf_counter() - meta_time:0.4f} seconds"
@@ -281,7 +284,7 @@ def decompress_loop(args, model, filenames, dataio):
         netcdf_utils.write_data_to_netcdf(
             ncfile,
             x_hat,
-            args.ds_name,
+            args.da_name,
             time_idx=i,
             verbose=args.verbose,
         )
@@ -395,7 +398,7 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
             netcdf_utils.write_data_to_netcdf(
                 ncfile,
                 x_hat,
-                args.ds_name,
+                args.da_name,
                 time_idx=i,
                 coors=coors,
                 verbose=args.verbose,
@@ -408,8 +411,9 @@ def get_data(args, model, filenames, dataio, lower_coors, upper_coors):
 def get_default_arguments():
     defaults = dict(
         command="",
-        data_dir="",
+        data_path="",
         ds_name="SST",
+        da_name="",  # if empty, da_name=ds_name, da is the data in ds
         model_path="./saved_models/model",
         use_fp16=False,
         verbose=True,
@@ -447,6 +451,9 @@ def create_argparser():
     parser = argparse.ArgumentParser()
     utils.add_dict_to_argparser(parser, defaults)
     args = parser.parse_args()
+
+    if args.da_name == "":
+        args.da_name = args.ds_name
 
     if args.command.lower() in ["compress", "decompress"]:
         if args.input_path == "":
