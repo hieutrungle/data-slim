@@ -56,7 +56,7 @@ def ncdump(nc_fid):
     return nc_attrs, nc_dims, nc_vars
 
 
-def create_dataset_with_only_metadata(input_file, output_file, ds_name, verbose=False):
+def create_dataset_with_only_metadata(input_file, output_file, da_name, verbose=False):
     with nc.Dataset(input_file) as ds:
         nc_attrs, nc_dims, nc_vars = ncdump(ds)
 
@@ -107,7 +107,7 @@ def create_dataset_with_only_metadata(input_file, output_file, ds_name, verbose=
                     ]:
                         variable.setncattr(attr_name, attr)
 
-                if not (var_name.find(ds_name) != -1):
+                if not (var_name.find(da_name) != -1):
                     data = ds.variables[var_name][:]
                     data = data.filled(np.nan)
                     # ncfile.variables[var_name][:] = data
@@ -128,7 +128,7 @@ def set_chunksizes(dimensions):
     return chunksizes
 
 
-def write_data_to_netcdf(output_file, da, ds_name, time_idx, coors=None, verbose=False):
+def write_data_to_netcdf(output_file, da, da_name, time_idx, coors=None, verbose=False):
 
     # with nc.Dataset(output_file) as ds:
     #     nc_attrs, nc_dims, nc_vars = ncdump(ds)
@@ -136,7 +136,7 @@ def write_data_to_netcdf(output_file, da, ds_name, time_idx, coors=None, verbose
     with nc.Dataset(output_file, mode="a", format="NETCDF4") as ncfile:
         nc_attrs, nc_dims, nc_vars = ncdump(ncfile)
         for i, (var_name, var_attrs) in enumerate(nc_vars.items()):
-            if var_name.find(ds_name) != -1:
+            if var_name.find(da_name) != -1:
                 # print(
                 #     f"var_name: {var_name}; var_attrs: {var_attrs}; da.shape: {da.shape}"
                 # )
