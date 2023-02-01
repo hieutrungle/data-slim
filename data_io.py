@@ -40,8 +40,6 @@ class Dataio:
     @patch_size.setter
     def patch_size(self, value):
         self._patch_size = value
-        # logger.warn(f"Recalculating padder")
-        # self._init_padder()
         if self.padder is not None:
             self._init_padder()
 
@@ -51,8 +49,6 @@ class Dataio:
 
     @data_shape.setter
     def data_shape(self, value):
-        # if self._data_shape is not None:
-        #     logger.warn(f"Recalculating padder")
         self._data_shape = value
         if self.padder is not None:
             self._init_padder()
@@ -66,10 +62,10 @@ class Dataio:
             raise ValueError("data shape must be of length 4 or 5.")
 
     def get_train_test_data_loader(
-        self, data_dir, data_type, ds_name, local_test=False
+        self, data_path, data_type, ds_name, da_name, local_test=False
     ):
         if data_type.lower().find("netcdf") != -1:
-            filenames, fillna_value = utils.get_filenames_and_fillna_value(data_dir)
+            filenames, fillna_value = utils.get_filenames_and_fillna_value(data_path)
             if local_test:
                 filenames = filenames[:2]
             split = int(len(filenames) * 0.99)
@@ -80,6 +76,7 @@ class Dataio:
             train_dataset = self.create_overlapping_generator(
                 train_files,
                 ds_name,
+                da_name,
                 fillna_value=fillna_value,
                 name="train",
                 shuffle=True,
@@ -90,13 +87,43 @@ class Dataio:
             test_dataset = self.create_disjoint_generator(
                 test_files,
                 ds_name,
+                da_name,
                 fillna_value=fillna_value,
                 name="test",
                 shuffle=False,
             )
         elif data_type.lower().find("binary") != -1:
-            # TODO: create pytorch data for binary data
-            pass
+            # TODO: make create_disjoin_binary_data function
+
+            train_dataset = OverlappingBinaryData(
+                data_path,
+                ds_name,
+                da_name,
+                kernel_size=self.patch_size,
+                stride=self.patch_size - 8,
+                batch_size=self.batch_size,
+                patch_size=self.patch_size,
+                data_shape=self.data_shape,
+                fillna_value=0,
+                shuffle=True,
+                name="train",
+                transform=self.transform,
+            )
+            self._update_parameters(train_dataset, name="train")
+            test_dataset = DisjointBinaryData(
+                data_path,
+                ds_name,
+                da_name,
+                batch_size=self.batch_size,
+                patch_size=self.patch_size,
+                data_shape=self.data_shape,
+                fillna_value=0,
+                shuffle=True,
+                name="test",
+                transform=self.transform,
+            )
+            self._update_parameters(test_dataset, name="test")
+            self.data_shape = test_dataset.data_shape
         else:
             raise ValueError(f"{data_type} is not supported")
 
@@ -131,11 +158,12 @@ class Dataio:
         return np.prod(sizes)
 
     def create_disjoint_generator(
-        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, da_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = DisjointDataGen(
             filenames,
             ds_name,
+            da_name,
             batch_size=self.batch_size,
             patch_size=self.patch_size,
             data_shape=self.data_shape,
@@ -148,11 +176,12 @@ class Dataio:
         return data_gen
 
     def create_overlapping_generator(
-        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, da_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = OverlappingDataGen(
             filenames,
             ds_name,
+            da_name,
             kernel_size=self.patch_size,
             stride=self.patch_size - 8,
             batch_size=self.batch_size,
@@ -167,11 +196,12 @@ class Dataio:
         return data_gen
 
     def create_train_generator(
-        self, filenames, ds_name, fillna_value=0, name=None, shuffle=False
+        self, filenames, ds_name, da_name, fillna_value=0, name=None, shuffle=False
     ):
         data_gen = TrainOverlappingDataGen(
             filenames,
             ds_name,
+            da_name,
             kernel_size=self.patch_size,
             stride=self.patch_size - 8,
             batch_size=self.batch_size,
@@ -286,6 +316,7 @@ class BaseDataGen(data.Dataset):
         self,
         filenames,
         ds_name,
+        da_name,
         batch_size,
         data_shape,
         patch_size,
@@ -298,11 +329,13 @@ class BaseDataGen(data.Dataset):
         self.num_outputs = None
         self.filenames = filenames
         self.ds_name = ds_name
+        self.da_name = da_name
         self.fillna_value = fillna_value
         self.name = name
         self.shuffle = shuffle
         self.patch_size = patch_size
         self.transform = transform
+        self.data_shape = data_shape
 
         patch_shape = [data_shape[0]]
         patch_shape.append(data_shape[-1])
@@ -318,6 +351,7 @@ class BaseDataGen(data.Dataset):
         if self.num_outputs is not None:
             message += f"; patch_shape: {self.num_outputs}x{self.patch_shape}"
             message += f"; ds_name: {self.ds_name}"
+            message += f"; da_name: {self.da_name}"
 
         message += f")"
         return message
@@ -348,6 +382,7 @@ class DisjointDataGen(BaseDataGen):
         self,
         filenames,
         ds_name,
+        da_name,
         batch_size,
         patch_size,
         data_shape,
@@ -359,6 +394,7 @@ class DisjointDataGen(BaseDataGen):
         super().__init__(
             filenames=filenames,
             ds_name=ds_name,
+            da_name=da_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -474,6 +510,7 @@ class OverlappingDataGen(BaseDataGen):
         self,
         filenames,
         ds_name,
+        da_name,
         kernel_size,
         stride,
         batch_size,
@@ -488,6 +525,7 @@ class OverlappingDataGen(BaseDataGen):
         super().__init__(
             filenames=filenames,
             ds_name=ds_name,
+            da_name=da_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -617,6 +655,7 @@ class TrainOverlappingDataGen(BaseDataGen):
         self,
         filenames,
         ds_name,
+        da_name,
         kernel_size,
         stride,
         batch_size,
@@ -631,6 +670,7 @@ class TrainOverlappingDataGen(BaseDataGen):
         super().__init__(
             filenames=filenames,
             ds_name=ds_name,
+            da_name=da_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -766,6 +806,7 @@ class DisjointBinaryData(BaseDataGen):
         self,
         filenames,
         ds_name,
+        da_name,
         batch_size,
         patch_size,
         data_shape,
@@ -777,6 +818,7 @@ class DisjointBinaryData(BaseDataGen):
         super().__init__(
             filenames=filenames,
             ds_name=ds_name,
+            da_name=da_name,
             batch_size=batch_size,
             data_shape=data_shape,
             patch_size=patch_size,
@@ -786,20 +828,28 @@ class DisjointBinaryData(BaseDataGen):
             transform=transform,
         )
 
+        # get data
+        ds = self.preprocess_data(filenames, data_shape)
+        if name == "test":
+            time_subset = int(np.ceil(ds.shape[0] * 0.01))
+            ds = ds[-time_subset:, ...]
+        self.data_shape = ds.shape
         self.num_outputs = 2
-        if len(data_shape) == 4:
-            self.padder = padder.Padder2D(patch_size, data_shape)
-        elif len(data_shape) == 5:
-            self.padder = padder.Padder3D(patch_size, data_shape)
+        if len(self.data_shape) == 4:
+            self.padder = padder.Padder2D(patch_size, self.data_shape)
+        elif len(self.data_shape) == 5:
+            self.padder = padder.Padder3D(patch_size, self.data_shape)
         else:
             raise ValueError("data shape must be of length 4 or 5.")
-        self.ds = utils.get_raw_data(filenames)
-        self.ds = np.reshape(self.ds, data_shape)
-        self.num_time_slices = self.ds.shape[0]
+        da = self.padder.pad_data(ds)
+        self.da = self.padder.split_data(da)
+        utils.get_data_info(self.da)
+
+        self.num_time_slices = ds.shape[0]
         self.num_patch_per_time_slice = (self.padder.padded_shape[1] // patch_size) * (
             self.padder.padded_shape[2] // patch_size
         )
-        self.num_patches = self.ds.shape[0] * self.num_patch_per_time_slice
+        self.num_patches = ds.shape[0] * self.num_patch_per_time_slice
 
         num_batches = self.num_patches / batch_size
         self.num_batches = int(
@@ -813,21 +863,127 @@ class DisjointBinaryData(BaseDataGen):
             else num_batch_per_time_slice + 1
         )
 
-    def __getitem__(self, index):
-        # return data and its mask
-        time_idx = index // self.num_patch_per_time_slice
-        if time_idx > self.time_idx:
-            self.time_idx = time_idx
-            da = self.ds[time_idx]
-            da = da.to_numpy()[::-1, :]
-            da = da[np.newaxis, ..., np.newaxis]
-            da = self.padder.pad_data(da)
-            self.da = self.padder.split_data(da)
-        da_idx = index % self.num_patch_per_time_slice
+    def preprocess_data(self, filenames, data_shape):
+        ds = utils.get_raw_data(filenames)
+        ds = np.reshape(ds, (-1, *data_shape[1:]))
+        if self.ds_name.lower().find("cesm") != -1:
+            ds = np.reshape(ds, (-1, *ds.shape[1:]))
+        elif self.ds_name.lower().find("hurrican_isabel") != -1:
+            ds = np.reshape(ds, (-1, 2, *ds.shape[2:-1]))
+            ds = np.transpose(ds, (0, 2, 3, 1))
+        elif self.ds_name.lower().find("nyx") != -1:
+            ds = np.reshape(ds, (-1, 2, *ds.shape[2:-1]))
+            ds = np.transpose(ds, (0, 2, 3, 1))
+        else:
+            raise ValueError("Unknown dataset name.")
+        return ds
 
-        sample = self.da[da_idx]
-        mask = self.mask[da_idx]
+    def __getitem__(self, index):
+        sample = self.da[index]
+        if self.ds_name == "CESM":
+            mask = copy.deepcopy(sample)
+            mask[mask > 0] = 1
+        else:
+            mask = np.ones_like(sample)
         if self.transform:
             sample = self.transform(sample)
             mask = self.transform(mask)
         return sample, mask
+
+
+class OverlappingBinaryData(BaseDataGen):
+    """Data generator for overlapping patches."""
+
+    def __init__(
+        self,
+        filenames,
+        ds_name,
+        da_name,
+        kernel_size,
+        stride,
+        batch_size,
+        patch_size,
+        data_shape,
+        padding=True,
+        fillna_value=0,
+        shuffle=False,
+        name=None,
+        transform=None,
+    ):
+        super().__init__(
+            filenames=filenames,
+            ds_name=ds_name,
+            da_name=da_name,
+            batch_size=batch_size,
+            data_shape=data_shape,
+            patch_size=patch_size,
+            shuffle=shuffle,
+            fillna_value=fillna_value,
+            name=name,
+            transform=transform,
+        )
+        self.zero_counter = 0
+        self.num_outputs = 2
+        self.kernel_size = kernel_size
+        self.stride = stride
+        ds = self._preprocess_data(filenames, data_shape)
+        self.data_shape = ds.shape
+        self.sliding_window = sw.SlidingWindow(
+            self.kernel_size, self.stride, padding=padding
+        )
+
+        self.coors = self.sliding_window.get_window_coors(self.data_shape)
+        num_windows = self.sliding_window.get_total_num_windows(self.data_shape[1:-1])
+        coors = []
+        for i in range(num_windows):
+            coor = self.sliding_window.get_coor_given_index(self.coors, i)
+            coors.append(coor)
+        self.coors = np.array(coors)
+        ds = self.sliding_window.pad_data(ds)
+        self.da = []
+        for time_idx in range(ds.shape[0]):
+            for coor in self.coors:
+                window = self.sliding_window.get_window_with_coordinate(
+                    ds[time_idx][np.newaxis, ...], coor
+                )
+                if np.sum(window) != 0:
+                    self.da.append(window)
+        self.da = np.array(self.da)
+        utils.get_data_info(self.da)
+
+        self.num_time_slices = ds.shape[0]
+        self.num_patch_per_time_slice = None
+        self.num_patches = self.da.shape[0]
+        num_batches = self.num_patches / batch_size
+        self.num_batches = int(
+            num_batches if self.num_patches % batch_size == 0 else num_batches + 1
+        )
+        self.num_batch_per_time_slice = None
+
+    def _preprocess_data(self, filenames, data_shape):
+        ds = utils.get_raw_data(filenames)
+        ds = np.reshape(ds, (-1, *data_shape[1:]))
+        if self.ds_name.lower().find("cesm") != -1:
+            ds = np.reshape(ds, (-1, *ds.shape[1:]))
+        elif self.ds_name.lower().find("hurrican_isabel") != -1:
+            ds = np.reshape(ds, (-1, 2, *ds.shape[2:-1]))
+            ds = np.transpose(ds, (0, 2, 3, 1))
+        elif self.ds_name.lower().find("nyx") != -1:
+            ds = np.reshape(ds, (-1, 2, *ds.shape[2:-1]))
+            ds = np.transpose(ds, (0, 2, 3, 1))
+        else:
+            raise ValueError("Unknown dataset name.")
+        return ds
+
+    def __getitem__(self, index):
+        # return data and its mask
+        window = self.da[index]
+        if self.ds_name == "CESM":
+            window_mask = copy.deepcopy(window)
+            window_mask[window_mask > 0] = 1
+        else:
+            window_mask = np.ones_like(window)
+        if self.transform:
+            window = self.transform(window)
+            window_mask = self.transform(window_mask)
+        return window, window_mask
