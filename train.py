@@ -106,8 +106,8 @@ class Compressor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        # loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.25
-        loss = mse_loss * self.mse_weight + quantized_loss
+        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.5
+        # loss = mse_loss * self.mse_weight + quantized_loss
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         self.log("mse_loss", mse_loss, prog_bar=True)
