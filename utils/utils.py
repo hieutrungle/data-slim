@@ -16,6 +16,7 @@ import torch
 import argparse
 import errno
 import math
+from io import BytesIO
 
 DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
 NUM_GPUS = int(os.environ.get("NUM_GPUS", 0))
@@ -145,8 +146,7 @@ def get_raw_data(file: str):
         # if this is the case, then remove the empty line
         if data[len(data) - 1] == "":
             data.remove("")
-        data = np.array(data)
-        data = data.astype("float32")
+        data = np.frombuffer(data, dtype=np.float32)
     return data
 
 
@@ -198,19 +198,16 @@ def get_netcdf_data_stats(data_path):
 
 def get_binary_data_stats(data_path, data_name):
     filenames = glob.glob(os.path.join(data_path, "*.txt"))
-    print(f"filenames: {filenames}")
     filename = [
         filename for filename in filenames if filename.lower().find("property") != -1
     ]
-    print(f"data_name: {data_name}")
-    stats = {}
+    stats = {"mean": 0, "variance": 0, "std": 0, "min": 0, "max": 0}
     with open(filename[0], "r") as f:
         is_recording = False
         for line in f.readlines():
             if line.find(data_name) != -1:
                 is_recording = True
             if is_recording == True:
-                print(line)
                 if line.lower().find("avg") != -1:
                     stats["mean"] = float(line.split("=")[1])
                 elif line.lower().find("variance") != -1:
