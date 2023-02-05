@@ -53,6 +53,9 @@ def compress(model, x, mask=None, verbose=False):
     if IS_CHECKING_MEMORY:
         utils.check_memory("Before compression")
 
+    if mask is None:
+        mask = torch.ones_like(x)
+
     start_time = time.perf_counter()
     batch_size = int(os.environ.get("BATCH_SIZE", "8"))
     tensors = compress_step(model, x, batch_size=batch_size)
@@ -64,11 +67,12 @@ def compress(model, x, mask=None, verbose=False):
     if verbose:
         logger.info(f"Encoding time: {encoding_time:0.2f} seconds")
 
-        packed = tensors
-        start_time = time.perf_counter()
-        x_hat = decompress(model, packed, mask)
-        decoding_time = time.perf_counter() - start_time
+    packed = tensors
+    start_time = time.perf_counter()
+    x_hat = decompress(model, packed, mask)
+    decoding_time = time.perf_counter() - start_time
 
+    if verbose:
         results = get_metrics(x * mask, x_hat, packed)
         results.update(
             {
@@ -78,9 +82,8 @@ def compress(model, x, mask=None, verbose=False):
             }
         )
         save_results(**results)
-        return tensors, x_hat
     gc.collect()
-    return tensors
+    return tensors, x_hat
 
 
 def save_compressed(output_file, tensors):
@@ -152,7 +155,7 @@ def decompress(model, tensors, mask=None, verbose=False):
         utils.check_memory("Before decompression")
     if not isinstance(tensors[0], torch.Tensor):
         tensors = [torch.tensor(tensor) for tensor in tensors]
-    if not isinstance(mask, torch.Tensor):
+    if mask is not None and not isinstance(mask, torch.Tensor):
         mask = torch.tensor(mask)
     batch_size = int(os.environ.get("BATCH_SIZE", "8"))
     x_hat = decompress_step(model, tensors, batch_size=batch_size)
