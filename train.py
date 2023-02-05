@@ -106,8 +106,8 @@ class Compressor(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.5
-        # loss = mse_loss * self.mse_weight + quantized_loss
+        # loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss * 0.5
+        loss = mse_loss * self.mse_weight + quantized_loss
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         self.log("mse_loss", mse_loss, prog_bar=True)
@@ -122,20 +122,20 @@ class Compressor(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
+        loss = mse_loss * self.mse_weight + quantized_loss
         self.log("val_mse_loss", mse_loss, sync_dist=True)
         self.log("val_quantized_loss", quantized_loss, sync_dist=True)
-        self.log("val_fft_mse_loss", fft_mse_loss, sync_dist=True)
+        # self.log("val_fft_mse_loss", fft_mse_loss, sync_dist=True)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
         self.log("hp/val_loss", loss, sync_dist=True)
         self.log("hp/val_mse", mse_loss, sync_dist=True)
 
     def test_step(self, batch, batch_idx):
         mse_loss, quantized_loss, fft_mse_loss = self._get_loss(batch)
-        loss = mse_loss * self.mse_weight + quantized_loss + fft_mse_loss
+        loss = mse_loss * self.mse_weight + quantized_loss
         self.log("test_mse_loss", mse_loss, sync_dist=True)
         self.log("test_quantized_loss", quantized_loss, sync_dist=True)
-        self.log("test_fft_mse_loss", fft_mse_loss, sync_dist=True)
+        # self.log("test_fft_mse_loss", fft_mse_loss, sync_dist=True)
         self.log("test_loss", loss, on_epoch=True, sync_dist=True)
 
     def compress(self, x):
