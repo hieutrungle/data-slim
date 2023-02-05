@@ -26,6 +26,9 @@ import errno
 import numpy as np
 import data_retrival
 import matplotlib.pyplot as plt
+import json
+import copy
+import utils.straight_through_pixels as stp
 
 
 def main(args):
@@ -60,7 +63,12 @@ def main(args):
             else args.data_path
         )
     else:
-        data_dir = Path(args.input_path).parent.absolute()
+        data_dir = (
+            Path(args.input_path).parent.absolute()
+            if args.command == "compress"
+            else args.input_path
+        )
+    print(f"data_dir: {data_dir}")
     stats = utils.get_data_stats(args.data_type, data_dir, args.da_name)
     logger.log(f"data statistics: {stats}")
     model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
@@ -145,19 +153,25 @@ def main(args):
 
         if args.command == "compress":
             #  Load data
-            ds = dataio.get_compression_data_loader(args.input_path, args.da_name)
-            if args.verbose:
-                dataio.log_training_parameters()
-
             logger.log("Compressing...")
             start_time = time.perf_counter()
-            compress_loop(args, model, ds, dataio)
+            if args.benchmark:
+                ds = dataio.get_benchmark_compression_data_loader(
+                    args.input_path, args.ds_name, args.da_name
+                )
+                benchmark_compression(args, model, ds, dataio)
+            else:
+                ds = dataio.get_compression_data_loader(
+                    args.input_path, args.ds_name, args.da_name
+                )
+                if args.verbose:
+                    dataio.log_training_parameters()
+                compress_loop(args, model, ds, dataio)
             logger.info(f"Compression completed!")
             logger.log(
                 f"Total compression time: {time.perf_counter() - start_time:0.4f} seconds"
             )
 
-        # elif args.command == "decompress":
         else:
             # Load compressed data (mask included)
             filenames = utils.get_filenames(args.input_path, postfix=".npz")
@@ -177,10 +191,14 @@ def main(args):
 
             logger.log(f"Decompressing...")
             start_time = time.perf_counter()
-            if args.command == "decompress":
-                decompress_loop(args, model, filenames, dataio)
+            if args.benchmark:
+                dataio.change_data_shape(args.ds_name)
+                benchmark_decompression(args, model, filenames, dataio)
             else:
-                get_data(args, model, filenames, dataio, lower_coors, upper_coors)
+                if args.command == "decompress":
+                    decompress_loop(args, model, filenames, dataio)
+                else:
+                    get_data(args, model, filenames, dataio, lower_coors, upper_coors)
             logger.info(f"Decompression completed!")
             logger.log(
                 f"Total decompression time: {time.perf_counter() - start_time:0.4f} seconds"
@@ -189,6 +207,114 @@ def main(args):
     else:
         raise ValueError(
             f"Unknown command: {args.command}. Options: train, compress, decompress, get_data."
+        )
+
+
+def benchmark_compression(args, model, ds, dataio):
+    if args.output_path is None:
+        output_path = os.path.join("./outputs", "".join(args.model_path.split("/")[-3]))
+    else:
+        output_path = args.output_path
+    utils.mkdir_if_not_exist(output_path)
+    output_filename = args.input_path.split("/")[-1].rpartition(".")[0]
+    logger.log(f"\nCompressing {args.input_path}")
+    xs = []
+    xhats = []
+    for i, (x, mask) in enumerate(ds):
+        # print(f"x shape: {x.shape}")
+        output_file = os.path.join(output_path, output_filename + f"_{i}")
+        if i == 0:
+            # Save mask and stats
+            # Mask
+            mask_path = os.path.join(output_path, "mask")
+            compression.save_compressed(mask_path, [mask])
+            # # Stats
+            stat_folder = Path(args.input_path).parent.absolute()
+            stat_path = glob.glob(os.path.join(stat_folder, "*.txt"))
+            stat_path = [
+                path for path in stat_path if path.lower().find("-property") != -1
+            ][0]
+            stat_filename = stat_path.rpartition("/")[-1]
+            stat_path = Path(stat_path)
+            shutil.copy(stat_path, os.path.join(output_path, stat_filename))
+            if args.verbose:
+                logger.log(f"Saving mask to {mask_path}")
+                logger.log(f"Saving statistics to {stat_path}")
+
+        # if args.verbose:
+        tensors, x_hat = compression.compress(model, x, mask, args.verbose)
+        # Save images of original data and reconstructed data for comparison.
+        x = x * mask
+        x = torch.permute(x, (0, 2, 3, 1)).detach().cpu().numpy()
+        x = dataio.revert_partition(x)
+
+        x_hat = x_hat * mask
+        x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+        x_hat = dataio.revert_partition(x_hat)
+        compression.save_compressed(output_file, tensors)
+
+        (unsatisfied_values, unsatisfied_indices) = stp.get_unsatisfied_values_indices(
+            x, x_hat, tolerance=args.tolerance
+        )
+        logger.log(f"len(unsatisfied_indices): {len(unsatisfied_indices)}")
+        unsatisfied_values_filename = os.path.join(
+            output_path, output_filename + f"_unsatisfied_values_" + f"_{i}"
+        )
+        compression.save_compressed(
+            unsatisfied_values_filename,
+            (unsatisfied_values, unsatisfied_indices),
+        )
+        x_hat = stp.replace_pixel(
+            x_hat, unsatisfied_values, unsatisfied_indices, args.straight_through_weight
+        )
+        if args.verbose:
+            for j in range(x.shape[-1]):
+                logger.log(f"Saving data {i}_{j}\n")
+                utils.save_reconstruction(
+                    x[0, ..., j : j + 1],
+                    x_hat[0, ..., j : j + 1],
+                    output_filename + f"_{i}_{j}",
+                    os.path.join(output_file, f"{i}_{j}"),
+                )
+        xs.append(x)
+        xhats.append(x_hat)
+    xs = np.concatenate(xs)
+    xhats = np.concatenate(xhats)
+    max_val = np.amax(xs) - np.amin(xs)
+    mse = np.square(xs - xhats).mean()
+    psnr = 20 * np.log10(max_val) - 10 * np.log10(mse)
+    logger.info(f"mse: {mse}")
+    logger.info(f"psnr: {psnr}")
+
+
+def benchmark_decompression(args, model, filenames, dataio):
+    output_path = args.output_path
+    utils.mkdir_if_not_exist(output_path)
+
+    mask_filename = [f for f in filenames if f.find("mask") != -1][0]
+    filenames.remove(mask_filename)
+
+    unsatisfied_val_filenames = []
+    tmp = copy.deepcopy(filenames)
+    for f in tmp:
+        if f.lower().find("unsatisfied") != -1:
+            unsatisfied_val_filenames.append(f)
+            filenames.remove(f)
+    del tmp
+
+    mask = compression.load_compressed(mask_filename)[0]
+    for i, filename in enumerate(filenames):
+
+        tensors = compression.load_compressed(filename)
+        x_hat = compression.decompress(model, tensors, mask, args.verbose)
+        x_hat = x_hat * mask
+        x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
+        x_hat = dataio.revert_partition(x_hat)
+        (unsatisfied_values, unsatisfied_indices) = compression.load_compressed(
+            unsatisfied_val_filenames[i]
+        )
+        x_hat = stp.replace_pixel(
+            x_hat, unsatisfied_values, unsatisfied_indices, args.straight_through_weight
         )
 
 
@@ -416,12 +542,15 @@ def get_default_arguments():
         da_name="",  # if empty, da_name=ds_name, da is the data in ds
         model_path="./saved_models/model",
         use_fp16=False,
-        verbose=True,
+        verbose=False,
         resume="",
         iter=-1,  # -1 means resume from the best model
         local_test=False,
         input_path="",  # a file if compress, a folder if decompress
         output_path="",  # a folder if compress, a folder if decompress
+        benchmark=False,  # test model on benchmark dataset
+        tolerance=1e-1,  # tolerance for compression
+        straight_through_weight=1,  # weight on traight through value
     )
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
