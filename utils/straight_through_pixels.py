@@ -4,19 +4,19 @@ import numpy as np
 def compare_replace(x, x_hat, tolerance=1e-2):
     # Compare pixels' values then replace if the difference is greater than tolerence
     (unsatisfied_values, unsatisfied_flatten_indices) = get_unsatisfied_values_indices(
-        x, x_hat, tolerance=tolerance)
-    x_hat = replace_pixel(x_hat, unsatisfied_values,
-                          unsatisfied_flatten_indices[0])
+        x, x_hat, tolerance=tolerance
+    )
+    x_hat = replace_pixel(x_hat, unsatisfied_values, unsatisfied_flatten_indices)
     return x_hat
 
 
-def replace_pixel(target, replace_values, indices):
+def replace_pixel(target, replace_values, indices, weight=1):
     # Replace target values with `replace_values` at coresponding indices
     # indices are flatten -> need to get the original indices
     target_shape = target.shape
     for value, index in zip(replace_values, indices):
         full_index = reverse_flatten_indices(target_shape, index)
-        target[full_index] = value
+        target[full_index] = (weight * value + target[full_index]) / (weight + 1)
     return target
 
 
@@ -37,8 +37,7 @@ def get_unsatisfied_values_indices(x, x_hat, tolerance=1e-2):
     x = np.array(x).flatten()
     x_hat = np.array(x_hat).flatten()
     x_diff = np.absolute(x - x_hat)
-    unsatisfied_values = x[x_diff > tolerance]
-    unsatisfied_flatten_indices = np.nonzero(x_diff > tolerance)
-    unsatisfied_flatten_indices = [row.tolist()
-                                   for row in unsatisfied_flatten_indices]
+    unsatisfied_values = x[x_diff > tolerance].astype(np.float16)
+    unsatisfied_flatten_indices = np.nonzero(x_diff > tolerance)[0]
+    unsatisfied_flatten_indices = [row.tolist() for row in unsatisfied_flatten_indices]
     return (unsatisfied_values, unsatisfied_flatten_indices)
