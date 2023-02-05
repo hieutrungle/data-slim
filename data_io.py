@@ -138,11 +138,28 @@ class Dataio:
         test_ds = self.get_data_loader(test_dataset, num_workers=4 * NUM_GPUS)
         return train_ds, test_ds
 
-    def get_compression_data_loader(self, input_path, ds_name):
+    def get_compression_data_loader(self, input_path, ds_name, da_name):
         filenames, fillna_value = utils.get_filenames_and_fillna_value(input_path)
         ds = self.create_disjoint_generator(
-            filenames, ds_name, fillna_value, name="compression", shuffle=False
+            filenames, ds_name, da_name, fillna_value, name="compression", shuffle=False
         )
+        ds = self.get_data_loader(ds, num_workers=4 * NUM_GPUS)
+        return ds
+
+    def get_benchmark_compression_data_loader(self, input_path, ds_name, da_name):
+        ds = DisjointBinaryData(
+            input_path,
+            ds_name,
+            da_name,
+            batch_size=self.batch_size,
+            patch_size=self.patch_size,
+            data_shape=self.data_shape,
+            fillna_value=0,
+            shuffle=True,
+            name="compression",
+            transform=self.transform,
+        )
+        self.data_shape = ds.data_shape
         ds = self.get_data_loader(ds, num_workers=4 * NUM_GPUS)
         return ds
 
@@ -259,6 +276,15 @@ class Dataio:
                 self.params[f"{name}.{k}"] = v
         except:
             pass
+
+    def change_data_shape(self, ds_name):
+        if ds_name.lower().find("cesm") != -1:
+            self.data_shape = (1, self.data_shape[-3], self.data_shape[-2], 1)
+        elif (
+            ds_name.lower().find("nyx") != -1
+            or ds_name.lower().find("hurrican_isabel") != -1
+        ):
+            self.data_shape = (1, self.data_shape[-3], self.data_shape[-2], 2)
 
     def get_mask(self, data_gen):
         """Get mask"""
