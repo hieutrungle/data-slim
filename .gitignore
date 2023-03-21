@@ -11,6 +11,7 @@ saved-models/*/
 saved-model/*/
 saved_models/*/
 saved_model/*/
+saved_model_sdrbench/*/
 **/*.log
 **/*.zip
 **/*.sh
