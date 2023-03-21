@@ -672,3 +672,63 @@ def get_nth_key(dictionary, n=0):
         if i == n:
             return key
     raise IndexError("dictionary index out of range")
+
+
+def collect_results(filename):
+    results = []
+    with open(filename, "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            if line.lower().find("ds_name =") != -1:
+                result = {}
+                result["ds_name"] = line.split("=")[-1].strip()[1:-1]
+            elif line.lower().find("da_name =") != -1:
+                result["da_name"] = line.split("=")[-1].strip()[1:-1]
+            elif line.lower().find("name = ") != -1:
+                result["name"] = line.split("=")[-1].strip()[1:-1]
+            elif line.lower().find("pre_num_channels = ") != -1:
+                result["pre_num_channels"] = int(line.split("=")[-1])
+            elif line.lower().find("num_channels = ") != -1:
+                result["num_channels"] = int(line.split("=")[-1])
+            elif line.lower().find("latent_dim = ") != -1:
+                result["latent_dim"] = int(line.split("=")[-1])
+            elif line.lower().find("num_embeddings = ") != -1:
+                result["num_embeddings"] = int(line.split("=")[-1])
+            elif line.lower().find("test_mse_loss") != -1:
+                all_result = line.split("=")[-1].strip()[1:-1]
+                all_result = all_result.replace("'", '"')
+                all_result = all_result.replace("nan", "-1")
+                all_result = json.loads(all_result)
+                for key in all_result.keys():
+                    result[key] = all_result[key]
+                results.append(result)
+    df = pd.DataFrame(results)
+    pd.DataFrame.to_csv(df, filename + ".csv")
+
+
+def get_compressed_size(
+    compressed_folder, size_format="MB", mask_excluded=False, nc_excluded=False
+):
+    filenames = glob.glob(os.path.join(compressed_folder, "*.npz"))
+    if mask_excluded:
+        mask_filename = [f for f in filenames if f.lower().find("mask") != -1][0]
+        filenames.remove(mask_filename)
+
+    compressed_size = 0
+    for filename in filenames:
+        compressed_size += os.stat(filename).st_size
+    return convert_bytes(compressed_size, size_format)
+
+
+def convert_bytes(size, size_format="KB"):
+    """Convert bytes to KB, or MB or GB"""
+    desired_format = []
+    for format in ["bytes", "KB", "MB", "GB", "TB"]:
+        if format == size_format:
+            break
+        desired_format.append(format)
+
+    for x in desired_format:
+        size /= 1000.0
+
+    return size
