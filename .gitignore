@@ -2,6 +2,7 @@
 *temp*
 data/*/
 logs/*
+benchmark_logs/*
 data/*.zip
 data/*.csv
 data/*.bat
