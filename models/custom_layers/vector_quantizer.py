@@ -206,7 +206,14 @@ class VectorQuantizerEMA(nn.Module):
             self._num_embeddings,
             device=encoding_indices.device,
         )
-        encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        # encodings.scatter_(dim=1, index=encoding_indices, value=1)
+        # encodings_1 = F.one_hot(
+        #     encoding_indices[:, 0], num_classes=self._num_embeddings
+        # )
+        # encodings_1 = encodings_1.type(self._embedding.weight.dtype)
+
+        encodings[torch.arange(encodings.shape[0]), encoding_indices[:, 0]] = 1.0
+        encodings = encodings.type(self._embedding.weight.dtype)
         return encodings
 
     def get_quantized_from_indices(
