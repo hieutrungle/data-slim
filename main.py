@@ -220,14 +220,14 @@ def benchmark_compression(args, model, ds, dataio):
     logger.log(f"\nCompressing {args.input_path}")
     xs = []
     xhats = []
+    total_unsatisfied_indices = 0
+    masks = []
     for i, (x, mask) in enumerate(ds):
-        # print(f"x shape: {x.shape}")
         output_file = os.path.join(output_path, output_filename + f"_{i}")
         if i == 0:
             # Save mask and stats
             # Mask
-            mask_path = os.path.join(output_path, "mask")
-            compression.save_compressed(mask_path, [mask])
+            masks.append(mask)
             # # Stats
             stat_folder = Path(args.input_path).parent.absolute()
             stat_path = glob.glob(os.path.join(stat_folder, "*.txt"))
@@ -238,17 +238,17 @@ def benchmark_compression(args, model, ds, dataio):
             stat_path = Path(stat_path)
             shutil.copy(stat_path, os.path.join(output_path, stat_filename))
             if args.verbose:
-                logger.log(f"Saving mask to {mask_path}")
                 logger.log(f"Saving statistics to {stat_path}")
 
-        # if args.verbose:
-        tensors, x_hat = compression.compress(model, x, mask, args.verbose)
+        tensors, x_hat = compression.compress(
+            model, x, mask, args.verbose, is_benchmarking=args.benchmark
+        )
         # Save images of original data and reconstructed data for comparison.
-        x = x * mask
+        # x = x * mask
         x = torch.permute(x, (0, 2, 3, 1)).detach().cpu().numpy()
         x = dataio.revert_partition(x)
 
-        x_hat = x_hat * mask
+        # x_hat = x_hat * mask
         x_hat = torch.permute(x_hat, (0, 2, 3, 1)).detach().cpu().numpy()
         x_hat = dataio.revert_partition(x_hat)
         compression.save_compressed(output_file, tensors)
@@ -256,7 +256,7 @@ def benchmark_compression(args, model, ds, dataio):
         (unsatisfied_values, unsatisfied_indices) = stp.get_unsatisfied_values_indices(
             x, x_hat, tolerance=args.tolerance
         )
-        logger.log(f"len(unsatisfied_indices): {len(unsatisfied_indices)}")
+        total_unsatisfied_indices += len(unsatisfied_indices)
         unsatisfied_values_filename = os.path.join(
             output_path, output_filename + f"_unsatisfied_values_" + f"_{i}"
         )
@@ -280,9 +280,25 @@ def benchmark_compression(args, model, ds, dataio):
         xhats.append(x_hat)
     xs = np.concatenate(xs)
     xhats = np.concatenate(xhats)
+    masks = np.concatenate(masks)
     max_val = np.amax(xs) - np.amin(xs)
     mse = np.square(xs - xhats).mean()
     psnr = 20 * np.log10(max_val) - 10 * np.log10(mse)
+    size_format = "MB"
+    mask_path = os.path.join(output_path, "mask")
+    compression.save_compressed(mask_path, [masks])
+    compressed_size = utils.get_compressed_size(
+        output_path, size_format=size_format, mask_excluded=True
+    )
+    original_size = utils.convert_bytes(np.array(xs).nbytes, size_format)
+    compression_ratio = original_size / compressed_size
+    bit_rate = 32 / compression_ratio
+    logger.log(f"len(unsatisfied_indices): {total_unsatisfied_indices}")
+    logger.info(f"tolerance: {args.tolerance}")
+    logger.info(f"compressed_size: {compressed_size} {size_format}")
+    logger.info(f"original size of x: {original_size} {size_format}")
+    logger.info(f"compression_ratio: {compression_ratio}")
+    logger.info(f"bit_rate: {bit_rate}")
     logger.info(f"mse: {mse}")
     logger.info(f"psnr: {psnr}")
 
