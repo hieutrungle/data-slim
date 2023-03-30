@@ -103,33 +103,37 @@ For netcdf data, we can use the following command to train the model:
 MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600 --data_type netcdf"
 TRAIN_FLAGS="--lr 3e-4 --batch_size 128 --epochs 100 --train_verbose True --local_test True"
-```
 
-```
-python main.py --command train --data_path ../data/tccs/ocean/SST_modified --model_path ./examples/tmp --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
+python main.py --command train --data_path ../data/tccs/ocean/SST_modified --model_path ./saved_models/tmp --verbose True $MODEL_FLAGS $DATA_FLAGS $TRAIN_FLAGS
 ```
 
 **Compression**
 
 ```
-MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+MODEL_FLAGS="--patch_size 256 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"
-```
 
-```
-python main.py --command compress --verbose False --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/tccs/ocean/SST_modified/SST.025001-025912.nc --output_path ./outputs/compressed_data  --batch_size 128
+python main.py --command compress --verbose False --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/tccs/ocean/SST_modified/SST.051001-051912.nc --output_path ./outputs/compressed_data  --batch_size 8
 ```
 
 **Get data**
 
 ```
-MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+MODEL_FLAGS="--patch_size 256 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
 DATA_FLAGS="--data_height 2400 --data_width 3600"
 GET_DATA_FLAGS="--start_time 0 --end_time 5 --start_pos_x 524 --start_pos_y 234 --end_pos_x 2541 --end_pos_y 2054"
+
+python main.py --command get_data --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS $GET_DATA_FLAGS --input_path ./outputs/compressed_data/ --output_path ./outputs/get_data_compressed_data --batch_size 10
 ```
 
+**Decompression**
+CLOUD
+
 ```
-python main.py --command get_data --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS $GET_DATA_FLAGS --input_path ./outputs/compressed_data/ --output_path ./outputs/get_data_compressed_data --batch_size 128
+MODEL_FLAGS="--patch_size 256 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --model_type hierachical"
+DATA_FLAGS="--data_height 2400 --data_width 3600"
+
+python main.py --command decompress --verbose False --model_path ./examples/trained_hierarchical_models/checkpoints/sst-epoch\=008-val_mse_loss\=0.01161-val_loss\=0.07661.pt $MODEL_FLAGS $DATA_FLAGS --input_path ./outputs/testing_sst_final_data  --output_path ./outputs/testing_sst_final_data_decompressed --batch_size 1
 ```
 
 ## Benchmark
@@ -178,17 +182,21 @@ CESM 26x1800x3600
 CLOUD
 
 ```
-MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-26x1800x3600/CLOUD_1_26_1800_3600.f32 --output_path ./outputs/CLOUD_1_26_1800_3600.f32  --batch_size 128  --benchmark True
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-26x1800x3600/CLOUD_1_26_1800_3600.f32 --output_path ./outputs/CLOUD_1_26_1800_3600.f32_tol_0.1_images  --batch_size 1  --benchmark True --verbose True
 ```
 
 FICE
 
 ```
-MODEL_FLAGS="--patch_size 64 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 256 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/FICE_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=079-val_mse_loss=0.00125-val_loss=0.96895.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-26x1800x3600/FICE_1_26_1800_3600.f32 --output_path ./outputs/FICE_1_26_1800_3600.f32  --batch_size 128  --benchmark True
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/FICE_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=091-val_mse_loss=0.00005-val_loss=0.00019.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-26x1800x3600/FICE_1_26_1800_3600.f32 --output_path ./outputs/FICE_1_26_1800_3600.f32.f32_tol_0.1_images  --batch_size 8  --benchmark True --verbose True
 ```
 
 CESM 1800x3600
@@ -196,28 +204,35 @@ CESM 1800x3600
 CLOUD
 
 ```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-COMPRESSION_FLAGS="--straight_through_weight 1000"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDHGH_1_1800_3600.dat --output_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1  --batch_size 1  --benchmark True --tolerance 0.045
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDHGH_1_1800_3600.dat --output_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1_images --batch_size 1 --benchmark True --verbose True
 ```
 
 ```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDLOW_1_1800_3600.dat --output_path ./outputs/CLDLOW_1_1800_3600.dat  --batch_size 1  --benchmark True
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDLOW_1_1800_3600.dat --output_path ./outputs/CLDLOW_1_1800_3600.dat_tol_0.1_images --batch_size 1 --benchmark True --verbose True
 ```
 
 ```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDMED_1_1800_3600.dat --output_path ./outputs/CLDMED_1_1800_3600.dat  --batch_size 1  --benchmark True
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDMED_1_1800_3600.dat --output_path ./outputs/CLDMED_1_1800_3600.dat_tol_0.1_images --batch_size 1 --benchmark True --verbose True
 ```
 
 ```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDTOT_1_1800_3600.dat --output_path ./outputs/CLDTOT_1_1800_3600.dat  --batch_size 1  --benchmark True
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDTOT_1_1800_3600.dat --output_path ./outputs/CLDTOT_1_1800_3600.dat_tol_0.1_images --batch_size 1 --benchmark True --verbose True
 ```
 
 For binary nyx data (.f32), we can use the following command to benchmark the model:
@@ -256,31 +271,35 @@ CESM 1800x3600
 CLOUD
 
 ```
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 16 --num_channels 64 --latent_dim 128 --num_embeddings 128 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.1"
+
+python main.py --command decompress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_16-num_channels_64-latent_dim_128-num_embeddings_128-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=098-val_mse_loss=0.00003-val_loss=0.00017.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1  --output_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1-decompress --batch_size 1  --benchmark True
+```
+
+```
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.045"
+
+python main.py --command decompress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ./outputs/CLDLOW_1_1800_3600.dat_tol_0.1 --output_path ./outputs/CLDLOW_1_1800_3600.dat_tol_0.1_decompress  --batch_size 1  --benchmark True
+```
+
+```
+MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
+DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
+COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.045"
+
+python main.py --command decompress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ./outputs/CLDMED_1_1800_3600.dat_tol_0.1 --output_path ./outputs/CLDMED_1_1800_3600.dat_tol_0.1_decompress  --batch_size 1  --benchmark True
+```
+
+```
 MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
 DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
 COMPRESSION_FLAGS="--straight_through_weight 1000  --tolerance 0.045"
 
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDHGH_1_1800_3600.dat --output_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1  --batch_size 1  --benchmark True
-
-python main.py --command decompress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1  --output_path ./outputs/CLDHGH_1_1800_3600.dat_tol_0.1-decompress --batch_size 1  --benchmark True
-```
-
-```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
-DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDLOW_1_1800_3600.dat --output_path ./outputs/CLDLOW_1_1800_3600.dat  --batch_size 1  --benchmark True
-```
-
-```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
-DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDMED_1_1800_3600.dat --output_path ./outputs/CLDMED_1_1800_3600.dat  --batch_size 1  --benchmark True
-```
-
-```
-MODEL_FLAGS="--patch_size 512 --pre_num_channels 32 --num_channels 64 --latent_dim 128 --num_embeddings 256 --num_residual_blocks 3 --num_transformer_block 0 --patch_channels 1 --model_type hierachical"
-DATA_FLAGS="--data_height 1800 --data_width 3600 --data_type binary --ds_name CESM --da_name CLOUD"
-python main.py --command compress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS --input_path ../data/SDRBENCH-CESM-ATM-cleared-1800x3600/CLDTOT_1_1800_3600.dat --output_path ./outputs/CLDTOT_1_1800_3600.dat  --batch_size 1  --benchmark True
+python main.py --command decompress --model_path ./saved_model/CLOUD_1_26_1800_3600.f32-hierachical--patch_size_64-pre_num_channels_32-num_channels_64-latent_dim_128-num_embeddings_256-num_residual_blocks_3-num_transformer_blocks_0/checkpoints/sst-epoch=077-val_mse_loss=0.00113-val_loss=2.11832.pt $MODEL_FLAGS $DATA_FLAGS $COMPRESSION_FLAGS --input_path ./outputs/CLDTOT_1_1800_3600.dat_tol_0.1 --output_path ./outputs/CLDTOT_1_1800_3600.dat_tol_0.1_decompress  --batch_size 1  --benchmark True
 ```
 
 Temperature
