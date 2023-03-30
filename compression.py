@@ -48,7 +48,7 @@ def compress_step(model, x, batch_size=4):
     return tensors
 
 
-def compress(model, x, mask=None, verbose=False):
+def compress(model, x, mask=None, verbose=False, is_benchmarking=False):
     """Compress data."""
     if IS_CHECKING_MEMORY:
         utils.check_memory("Before compression")
@@ -64,15 +64,16 @@ def compress(model, x, mask=None, verbose=False):
     if IS_CHECKING_MEMORY:
         utils.check_memory("After compression")
 
+    x_hat = None
+    if verbose or is_benchmarking:
+        # decoding to get stats
+        packed = tensors
+        start_time = time.perf_counter()
+        x_hat = decompress(model, packed, mask)
+        decoding_time = time.perf_counter() - start_time
+
     if verbose:
         logger.info(f"Encoding time: {encoding_time:0.2f} seconds")
-
-    packed = tensors
-    start_time = time.perf_counter()
-    x_hat = decompress(model, packed, mask)
-    decoding_time = time.perf_counter() - start_time
-
-    if verbose:
         results = get_metrics(x * mask, x_hat, packed)
         results.update(
             {
@@ -82,8 +83,12 @@ def compress(model, x, mask=None, verbose=False):
             }
         )
         save_results(**results)
+
     gc.collect()
-    return tensors, x_hat
+    if x_hat is not None:
+        return tensors, x_hat
+    else:
+        return tensors
 
 
 def save_compressed(output_file, tensors):
