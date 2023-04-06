@@ -20,7 +20,7 @@ This should install the all required python packages that the scripts depend on.
 
 The training data is the Subsurface Sea Temperature (SST). The data have been modified to have the same dimension across all netCDF files.
 
-Raw data can be found at [High-Resolution Earth System Prediction Project](https://datahub.geos.tamu.edu:8880/thredds/catalog/iHESPDataHUB/B.E.13.B1850C5.ne120_t12.sehires38.003.sunway_02/ocn/SST/catalog.html)
+Raw data can be found at [High-Resolution Earth System Prediction Sea Sureface Temperature (SST)](https://datahub.geos.tamu.edu:8880/thredds/catalog/iHESPDataHUB/B.E.13.B1850C5.ne120_t12.sehires38.003.sunway_02/ocn/SST/catalog.html). The main page of the project is at [High-Resolution Earth System Prediction Project](https://ihesp.github.io/archive/index.html)
 
 During training, all netCDF files are automatically processed to become suitable data types before being fed into the model. Simply pass `--data_path path/to/folder` to the training script, and it will take care of the rest.
 
