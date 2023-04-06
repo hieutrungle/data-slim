@@ -1,10 +1,10 @@
-# Compression Vector-quantized Variational Autoencoder
+# DataSlim
 
-This is the codebase for ["paper name and link"](https://arxiv.org/).
+This project is a PyTorch implementation of the paper ["Hierarchical Autoencoder-based Lossy Compression for Large-scale High-resolution Scientific Data"](https://arxiv.org/).
 
 # Usage
 
-This section of the README walks through how to train and sample from a model.
+This section walks through how to train and sample from a model.
 
 ## Installation
 
@@ -18,7 +18,7 @@ This should install the all required python packages that the scripts depend on.
 
 ## Preparing Data
 
-The training data is the Subsurface Sea Temperature (SST). The data has been modified to have the same dimension across all netCDF files. The folder containing all files are at ["Geohub"]()
+The training data is the Subsurface Sea Temperature (SST). The data has been modified to have the same dimension across all netCDF files. The folder containing all files are at [High-Resolution Earth System Prediction Project](https://datahub.geos.tamu.edu:8880/thredds/catalog/iHESPDataHUB/B.E.13.B1850C5.ne120_t12.sehires38.003.sunway_02/ocn/SST/catalog.html)
 
 During training, all netCDF files are automatically processed to become suitable data types before being fed into the model. Simply pass `--data_path path/to/folder` to the training script, and it will take care of the rest.
 
