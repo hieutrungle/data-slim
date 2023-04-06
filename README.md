@@ -16,7 +16,7 @@ pip install -r requirements.txt
 
 This should install the all required python packages that the scripts depend on.
 
-## Preparing Data
+## Data Source
 
 The training data is the Subsurface Sea Temperature (SST). The data have been modified to have the same dimension across all netCDF files.
 
