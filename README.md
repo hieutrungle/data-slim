@@ -2,7 +2,7 @@
 
 This project is a PyTorch implementation of the paper ["Hierarchical Autoencoder-based Lossy Compression for Large-scale High-resolution Scientific Data"](https://arxiv.org/).
 
-# Usage
+## Usage
 
 This section walks through how to train and sample from a model.
 
