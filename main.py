@@ -220,6 +220,12 @@ def run_main():
     utils.configure_args(args)
     logger.configure(dir="./tmp_logs")
     utils.log_args_and_device_info(args)
+    backend = "nccl"
+
+    if args.xpu:
+        import intel_extension_for_pytorch as ipex
+
+        backend = "ccl"
 
     if args.command == "train":
         world_size = args.num_devices
@@ -774,6 +780,7 @@ def get_default_arguments():
         tolerance=1e-1,  # tolerance for compression
         straight_through_weight=1,  # weight on traight through value
         num_devices=1,
+        xpu=False,
     )
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
