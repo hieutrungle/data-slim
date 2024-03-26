@@ -15,7 +15,7 @@ import argparse
 import netcdf_utils
 import data_io
 from models import res_conv2d_attn, hierachical_res_2d, hier_mbconv
-from utils import logger, utils
+from utils import logger, utils, timer
 import compression
 import train
 import time
@@ -29,6 +29,212 @@ import matplotlib.pyplot as plt
 import json
 import copy
 import utils.straight_through_pixels as stp
+import torch.nn as nn
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+import torchvision.transforms as transforms
+import training
+import torch.optim as optim
+
+
+def get_dataset(args, dataio):
+    world_size = dist.get_world_size()
+
+    # dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
+    filenames, fillna_value = utils.get_filenames_and_fillna_value(args.data_path)
+    split = int(len(filenames) * 0.99)
+    train_files = filenames[:split]
+
+    # Train data
+    logger.log(f"number of train_files: {len(train_files)}")
+    train_ds = dataio.create_overlapping_generator(
+        train_files,
+        args.ds_name,
+        args.da_name,
+        fillna_value=fillna_value,
+        name="train",
+        shuffle=True,
+    )
+    # Test data
+    test_files = filenames[split:]
+    logger.log(f"number of test_files: {len(test_files)}")
+    test_ds = dataio.create_disjoint_generator(
+        test_files,
+        args.ds_name,
+        args.da_name,
+        fillna_value=fillna_value,
+        name="test",
+        shuffle=False,
+    )
+
+    train_sampler = DistributedSampler(
+        train_ds, num_replicas=world_size, shuffle=True, drop_last=True
+    )
+    test_sampler = DistributedSampler(
+        test_ds, num_replicas=world_size, shuffle=False, drop_last=False
+    )
+    batch_size = int(args.batch_size / float(world_size))
+    logger.log(f"Batch size: {batch_size}")
+    logger.log(f"World size: {world_size}")
+    train_loader = torch.utils.data.DataLoader(
+        train_ds,
+        sampler=train_sampler,
+        batch_size=batch_size,
+        pin_memory=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_ds,
+        sampler=test_sampler,
+        batch_size=batch_size,
+    )
+
+    return train_loader, test_loader
+
+
+def run_cuda(args, rank, world_size):
+    torch.cuda.set_device(rank)
+    torch.cuda.empty_cache()
+    device = torch.device("cuda", rank)
+    torch.backends.cudnn.benchmark = True
+    dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
+    train_loader, test_loader = get_dataset(args, dataio)
+
+    # Model Initialization
+    if args.model_type.lower().find("hierachical") != -1:
+        model = hierachical_res_2d.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("hier_mbconv") != -1:
+        model = hier_mbconv.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("res_1") != -1:
+        model = res_conv2d_attn.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    else:
+        raise ValueError(f"Invalid model type ({args.model_type}).")
+    model.to(device)
+    # Get data stats.
+    data_dir = ""
+    if args.data_path != "":
+        data_dir = (
+            Path(args.data_path).parent.absolute()
+            if os.path.isfile(args.data_path)
+            else args.data_path
+        )
+    else:
+        data_dir = (
+            Path(args.input_path).parent.absolute()
+            if args.command == "compress"
+            else args.input_path
+        )
+    print(f"data_dir: {data_dir}")
+    stats = utils.get_data_stats(args.data_type, data_dir, args.da_name)
+    logger.log(f"data statistics: {stats}")
+    model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
+
+    # use if model contains batchnorm.
+    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    # model = torch.compile(model)
+    model = DDP(
+        model, device_ids=[rank], output_device=rank, find_unused_parameters=True
+    )
+
+    # Resume parameters.
+    resume_checkpoint = {}
+    if args.resume:
+        resume_checkpoint = utils.get_checkpoint(args)
+        model, is_weight_loaded = utils.load_model_with_checkpoint(
+            model, resume_checkpoint["weight_path"], args.verbose
+        )
+        if not is_weight_loaded:
+            logger.log("Training from scratch.\n")
+            resume_checkpoint = {}
+
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        betas=(0.9, 0.999),
+        eps=1e-08,
+        weight_decay=args.weight_decay,
+        amsgrad=False,
+    )
+
+    # Train & Evaluate
+    utils.mkdir_if_not_exist(args.model_path)
+    trainer = training.TorchTrainer(
+        model, train_loader, test_loader, optimizer, DEVICE, args
+    )
+    trainer.train(args.epochs)
+
+    cleanup(rank)
+
+
+def cleanup(rank):
+    # dist.cleanup()
+    dist.destroy_process_group()
+    print(f"Rank {rank} is done.")
+
+
+def setup_for_distributed(is_master):
+    """
+    This function disables printing when not in master process
+    """
+    import builtins as __builtin__
+
+    builtin_print = __builtin__.print
+
+    def print(*args, **kwargs):
+        force = kwargs.pop("force", False)
+        if is_master or force:
+            builtin_print(*args, **kwargs)
+
+    __builtin__.print = print
+
+
+def init_process(
+    args,
+    rank,  # rank of the process
+    world_size,  # number of workers
+    fn,  # function to be run
+    # backend='gloo',# good for single node
+    backend="nccl",  # the best for CUDA
+    # backend="gloo",
+):
+    # information used for rank 0
+    os.environ["MASTER_ADDR"] = "127.0.0.1"
+    os.environ["MASTER_PORT"] = "29500"
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
+    dist.barrier()
+    setup_for_distributed(rank == 0)
+    fn(args, rank, world_size)
+
+
+def run_main():
+    torch.cuda.empty_cache()
+    args = create_argparser()
+    utils.configure_args(args)
+    logger.configure(dir="./tmp_logs")
+    utils.log_args_and_device_info(args)
+
+    if args.command == "train":
+        world_size = args.num_devices
+        processes = []
+        mp.set_start_method("spawn")
+
+        for rank in range(world_size):
+            p = mp.Process(target=init_process, args=(args, rank, world_size, run_cuda))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+    else:
+        pass
 
 
 def main(args):
@@ -567,6 +773,7 @@ def get_default_arguments():
         benchmark=False,  # test model on benchmark dataset
         tolerance=1e-1,  # tolerance for compression
         straight_through_weight=1,  # weight on traight through value
+        num_devices=1,
     )
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
@@ -622,5 +829,6 @@ if __name__ == "__main__":
     # args = Args(**defaults)
 
     # Using CLI
-    args = create_argparser()
-    main(args)
+    # args = create_argparser()
+    # main(args)
+    run_main()

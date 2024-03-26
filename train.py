@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 import os
 import sys
-from utils import utils, scheduler, logger, custom_callbacks
+from utils import utils, scheduler, logger, custom_callbacks, timer
 import gc
 
 DEVICE = torch.device(str(os.environ.get("DEVICE", "cpu")))
