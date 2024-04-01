@@ -227,7 +227,7 @@ def run_main():
 
         backend = "ccl"
 
-    world_size = args.num_devices
+    world_size = int(args.num_devices)
     if world_size == -1:
         mpi_world_size = int(os.environ.get("PMI_SIZE", -1))
 
