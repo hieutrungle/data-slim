@@ -46,8 +46,8 @@ zict==2.1.0
 matplotlib
 netcdf4
 torchinfo
-pytorch-lightning
-torchaudio
+# pytorch-lightning
+# torchaudio
 scipy
 scikit-image
 seaborn
