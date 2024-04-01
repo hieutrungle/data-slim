@@ -95,10 +95,16 @@ def get_dataset(args, dataio):
 
 
 def run_cuda(args, rank, world_size):
-    torch.cuda.set_device(rank)
-    torch.cuda.empty_cache()
-    device = torch.device("cuda", rank)
-    torch.backends.cudnn.benchmark = True
+    if args.xpu:
+        import intel_extension_for_pytorch as ipex
+        import oneccl_bindings_for_pytorch
+
+        torch.xpu.set_device(rank)
+    else:
+        torch.cuda.set_device(rank)
+        torch.cuda.empty_cache()
+        device = torch.device("cuda", rank)
+        torch.backends.cudnn.benchmark = True
     dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
     train_loader, test_loader = get_dataset(args, dataio)
 
@@ -117,7 +123,16 @@ def run_cuda(args, rank, world_size):
         )
     else:
         raise ValueError(f"Invalid model type ({args.model_type}).")
-    model.to(device)
+
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        betas=(0.9, 0.999),
+        eps=1e-08,
+        weight_decay=args.weight_decay,
+        amsgrad=False,
+    )
+
     # Get data stats.
     data_dir = ""
     if args.data_path != "":
@@ -139,6 +154,12 @@ def run_cuda(args, rank, world_size):
 
     # use if model contains batchnorm.
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    if args.xpu:
+        model, optimizer = ipex.optimize(model, optimizer, dtype=torch.bfloat16)
+    else:
+        model.to(device)
+
     # model = torch.compile(model)
     model = DDP(
         model, device_ids=[rank], output_device=rank, find_unused_parameters=True
@@ -154,15 +175,6 @@ def run_cuda(args, rank, world_size):
         if not is_weight_loaded:
             logger.log("Training from scratch.\n")
             resume_checkpoint = {}
-
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=args.lr,
-        betas=(0.9, 0.999),
-        eps=1e-08,
-        weight_decay=args.weight_decay,
-        amsgrad=False,
-    )
 
     # Train & Evaluate
     utils.mkdir_if_not_exist(args.model_path)
