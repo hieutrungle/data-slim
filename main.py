@@ -225,6 +225,11 @@ def run_main():
     if args.xpu:
         import intel_extension_for_pytorch as ipex
 
+        try:
+            import oneccl_bindings_for_pytorch
+        except ImportError:
+            print("oneccl_bindings_for_pytorch not available!")
+
         backend = "ccl"
 
     if args.command == "train":
@@ -233,7 +238,9 @@ def run_main():
         mp.set_start_method("spawn")
 
         for rank in range(world_size):
-            p = mp.Process(target=init_process, args=(args, rank, world_size, run_cuda, backend))
+            p = mp.Process(
+                target=init_process, args=(args, rank, world_size, run_cuda, backend)
+            )
             p.start()
             processes.append(p)
 
