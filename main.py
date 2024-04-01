@@ -203,7 +203,6 @@ def init_process(
     fn,  # function to be run
     # backend='gloo',# good for single node
     backend="nccl",  # the best for CUDA
-    # backend="gloo",
 ):
     # information used for rank 0
     os.environ["MASTER_ADDR"] = "127.0.0.1"
@@ -224,12 +223,7 @@ def run_main():
 
     if args.xpu:
         import intel_extension_for_pytorch as ipex
-
-        try:
-            import oneccl_bindings_for_pytorch
-        except ImportError:
-            print("oneccl_bindings_for_pytorch not available!")
-
+        import oneccl_bindings_for_pytorch
         backend = "ccl"
 
     if args.command == "train":
