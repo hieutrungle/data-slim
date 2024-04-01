@@ -16,6 +16,18 @@ pip install -r requirements.txt
 
 This should install the all required python packages that the scripts depend on.
 
+### Intel PVC
+
+Use Python 3.9
+
+Follow the instruction [here](https://www.intel.com/content/www/us/en/developer/tools/oneapi/ai-tools-selector.html?get-tools=ai-tools&preset=deep-learning&disti-type-dl=pip&intel-optimized-framework-dl-pip=pytorch&framework-tf-dl-pip=tensorflow).
+
+```bash
+
+pip install tensorflow==2.15 intel-extension-for-tensorflow[cpu]==2.15 torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 deepspeed==0.14.0 intel_extension_for_pytorch==2.2.0 oneccl-bind-pt==2.2.0 --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/cpu/us/
+
+```
+
 ## Data Source
 
 The training data is the Subsurface Sea Temperature (SST). The data have been modified to have the same dimension across all netCDF files.

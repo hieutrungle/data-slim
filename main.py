@@ -233,7 +233,7 @@ def run_main():
         mp.set_start_method("spawn")
 
         for rank in range(world_size):
-            p = mp.Process(target=init_process, args=(args, rank, world_size, run_cuda))
+            p = mp.Process(target=init_process, args=(args, rank, world_size, run_cuda, backend))
             p.start()
             processes.append(p)
 
