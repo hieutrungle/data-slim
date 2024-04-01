@@ -224,10 +224,23 @@ def run_main():
     if args.xpu:
         import intel_extension_for_pytorch as ipex
         import oneccl_bindings_for_pytorch
+
         backend = "ccl"
 
+    world_size = args.num_devices
+    if world_size == -1:
+        mpi_world_size = int(os.environ.get("PMI_SIZE", -1))
+
+        if mpi_world_size > 0:
+            os.environ["MASTER_ADDR"] = "127.0.0.1"  #'127.0.0.1'
+            os.environ["MASTER_PORT"] = "29500"  #'29500'
+            os.environ["RANK"] = os.environ.get("PMI_RANK", -1)
+            os.environ["WORLD_SIZE"] = os.environ.get("PMI_SIZE", -1)
+            # rank = int(os.environ.get('PMI_RANK', -1))
+        world_size = int(os.environ.get("WORLD_SIZE", -1))
+
     if args.command == "train":
-        world_size = args.num_devices
+
         processes = []
         mp.set_start_method("spawn")
 
