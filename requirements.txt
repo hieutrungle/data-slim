@@ -47,8 +47,6 @@ matplotlib
 netcdf4
 torchinfo
 pytorch-lightning
-torch
-torchvision
 torchaudio
 scipy
 scikit-image

@@ -100,14 +100,20 @@ class TorchTrainer:
             self.model.eval()
 
             # Disable gradient computation and reduce memory consumption.
+            device = torch.device(f"cuda:{dist.get_rank()}")
             with torch.no_grad():
-                for i, vdata in enumerate(self.validation_loader):
-                    vinputs, vlabels = vdata
-                    vinputs, vlabels = vinputs.to(self.device), vlabels.to(self.device)
+                for i, batch in enumerate(self.validation_loader):
+                    x, mask = batch
+                    x = x.type(torch.float32)
+                    mask = mask.type(torch.float32)
+                    x, mask = x.to(device), mask.to(device)
 
-                    voutputs = self.model(vinputs)
-                    vloss = self.loss_fn(voutputs, vlabels)
-                    running_vloss += vloss
+                    quantized_loss, x_hat, _ = self.model(x)
+                    x_hat = x_hat.type(torch.float32)
+                    x = x * mask
+                    x_hat = x_hat * mask
+                    mse_loss = F.mse_loss(x, x_hat)
+                    running_vloss = mse_loss * 3 + quantized_loss
 
             avg_vloss = running_vloss / (i + 1)
             logger.log("LOSS train {} valid {}".format(avg_loss, avg_vloss))
