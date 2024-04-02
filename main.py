@@ -1,6 +1,7 @@
 import sys
 import os
-from torchinfo import summary
+
+# from torchinfo import summary
 import torch
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -17,7 +18,8 @@ import data_io
 from models import res_conv2d_attn, hierachical_res_2d, hier_mbconv
 from utils import logger, utils, timer
 import compression
-import train
+
+# import train
 import time
 import shutil
 from pathlib import Path
