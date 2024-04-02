@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import torch.nn.functional as F
 import os
-from utils import utils, scheduler, logger, custom_callbacks, timer
+from utils import utils, logger, timer
 import time
 import torch.distributed as dist
 
