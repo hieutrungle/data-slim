@@ -221,6 +221,10 @@ def init_process(
     # information used for rank 0
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
+    os.environ["RANK"] = str(os.environ.get("PMI_RANK", 0))
+    os.environ["WORLD_SIZE"] = str(os.environ.get("PMI_SIZE", 1))
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
     dist.init_process_group(backend, rank=rank, world_size=world_size)
     dist.barrier()
     setup_for_distributed(rank == 0)
