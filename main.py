@@ -237,19 +237,13 @@ def run_main():
         import intel_extension_for_pytorch as ipex
         import oneccl_bindings_for_pytorch
 
+        [
+            print(f"[{i}]: {torch.xpu.get_device_properties(i)}")
+            for i in range(torch.xpu.device_count())
+        ]
         backend = "ccl"
 
     world_size = int(args.num_devices)
-    if world_size == -1:
-        mpi_world_size = int(os.environ.get("PMI_SIZE", -1))
-
-        if mpi_world_size > 0:
-            os.environ["MASTER_ADDR"] = "127.0.0.1"  #'127.0.0.1'
-            os.environ["MASTER_PORT"] = "29500"  #'29500'
-            os.environ["RANK"] = os.environ.get("PMI_RANK", -1)
-            os.environ["WORLD_SIZE"] = os.environ.get("PMI_SIZE", -1)
-            # rank = int(os.environ.get('PMI_RANK', -1))
-        world_size = int(os.environ.get("WORLD_SIZE", -1))
 
     if args.command == "train":
 
