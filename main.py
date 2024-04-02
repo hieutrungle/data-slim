@@ -225,7 +225,7 @@ def init_process(
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
     dist.init_process_group(backend, rank=rank, world_size=world_size)
-    dist.barrier()
+    # dist.barrier()
     setup_for_distributed(rank == 0)
     fn(args, rank, world_size)
 
