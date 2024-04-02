@@ -47,7 +47,6 @@ matplotlib
 netcdf4
 torchinfo
 pytorch-lightning
-torchaudio
 scipy
 scikit-image
 seaborn
