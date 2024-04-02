@@ -218,6 +218,9 @@ def init_process(
     # backend='gloo',# good for single node
     backend="nccl",  # the best for CUDA
 ):
+    if args.xpu:
+        import intel_extension_for_pytorch as ipex
+        import oneccl_bindings_for_pytorch
     # information used for rank 0
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
