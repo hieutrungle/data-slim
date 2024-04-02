@@ -13,3 +13,6 @@ ipywidgets
 tensorboard
 tensorboardX
 torchinfo
+dask
+xarray
+numpy
