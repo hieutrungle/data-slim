@@ -158,14 +158,19 @@ def run_cuda(args, rank, world_size):
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     if args.xpu:
+        torch.xpu.set_device(args.xpu)
+        model = model.xpu(args.xpu)
+
+    if args.xpu:
         model, optimizer = ipex.optimize(model, optimizer, dtype=torch.bfloat16)
     else:
         model.to(device)
 
-    # model = torch.compile(model)
     model = DDP(
         model, device_ids=[rank], output_device=rank, find_unused_parameters=True
     )
+
+    # model = torch.compile(model)
 
     # Resume parameters.
     resume_checkpoint = {}
@@ -183,7 +188,10 @@ def run_cuda(args, rank, world_size):
     trainer = training.TorchTrainer(
         model, train_loader, test_loader, optimizer, DEVICE, args
     )
-    trainer.train(args.epochs)
+    if not args.xpu:
+        trainer.train(args.epochs)
+    else:
+        pass
 
     cleanup(rank)
 
