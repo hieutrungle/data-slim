@@ -10,3 +10,5 @@ black
 pep8
 tqdm
 ipywidgets
+tensorboard
+tensorboardX
