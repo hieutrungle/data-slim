@@ -12,3 +12,4 @@ tqdm
 ipywidgets
 tensorboard
 tensorboardX
+torchinfo
