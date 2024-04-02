@@ -156,10 +156,10 @@ def run_cuda(args, rank, world_size):
 
     # use if model contains batchnorm.
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
+    xpu_device = "xpu:{}".format(rank)
     if args.xpu:
-        torch.xpu.set_device(args.xpu)
-        model = model.xpu(args.xpu)
+        torch.xpu.set_device(xpu_device)
+        model = model.xpu(xpu_device)
 
     if args.xpu:
         model, optimizer = ipex.optimize(model, optimizer, dtype=torch.bfloat16)
