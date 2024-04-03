@@ -73,6 +73,8 @@ def run_main():
 
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
     ngpus_per_node = 1
+    utils.log_args_and_device_info(args)
+
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
