@@ -99,7 +99,7 @@ def main_worker(abc, ngpus_per_node, args):
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + args.gpu
+            args.rank = args.rank * ngpus_per_node
         init_method = "tcp://" + args.dist_url + ":" + args.dist_port
         dist.init_process_group(
             backend=args.dist_backend,
