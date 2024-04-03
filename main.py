@@ -251,8 +251,8 @@ def init_process(
         import oneccl_bindings_for_pytorch
 
         os.environ["CCL_PROCESS_LAUNCHER"] = "none"
-        os.environ["CCL_LOCAL_SIZE"] = str(world_size)
-        os.environ["CCL_LOCAL_RANK"] = str(rank)
+        os.environ["CCL_LOCAL_SIZE"] = world_size
+        os.environ["CCL_LOCAL_RANK"] = rank
     # information used for rank 0
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
