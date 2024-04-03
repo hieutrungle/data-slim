@@ -93,7 +93,33 @@ def run_main():
 
 
 def main_worker(ngpus_per_node, args):
-    print(f"worker")
+    if args.distributed:
+        if args.rank == -1:
+            args.rank = int(os.environ["RANK"])
+        if args.multiprocessing_distributed:
+            # For multiprocessing distributed training, rank needs to be the
+            # global rank among all the processes
+            args.rank = args.rank * ngpus_per_node + args.gpu
+        init_method = "tcp://" + args.dist_url + ":" + args.dist_port
+        dist.init_process_group(
+            backend=args.dist_backend,
+            init_method=init_method,
+            world_size=args.world_size,
+            rank=args.rank,
+        )
+
+        local_rank = os.environ["MPI_LOCALRANKID"]
+        if "OMPI_COMM_WORLD_LOCAL_RANK" in os.environ.keys():
+            local_rank = os.environ["OMPI_COMM_WORLD_LOCAL_RANK"]
+        args.xpu = local_rank
+        print(
+            "world_size:{}, rank:{}, local_rank:{}".format(
+                args.world_size, args.rank, local_rank
+            )
+        )
+
+    print("Use XPU: {}".format(args.xpu))
+    args.xpu = "xpu:{}".format(args.xpu)
 
 
 def get_dataset(args, dataio):
