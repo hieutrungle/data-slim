@@ -166,6 +166,8 @@ def get_default_arguments():
         benchmark=False,  # test model on benchmark dataset
         tolerance=1e-1,  # tolerance for compression
         straight_through_weight=1,  # weight on traight through value
+        dist_port="29500",
+        dist_url="127.0.0.1",
         num_devices=-1,
         world_size=-1,
         rank=-1,
