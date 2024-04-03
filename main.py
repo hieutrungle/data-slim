@@ -156,13 +156,25 @@ def run_cuda(args, rank, world_size):
 
     # use if model contains batchnorm.
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    xpu_device = "xpu:{}".format(rank)
     if args.xpu:
+        if args.tf32:
+            print("doing TF32 training")
+            torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.TF32)
+        elif args.bf32:
+            args.bf16 = 1
+            print("doing BF32 training")
+            torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.BF32)
+        else:
+            torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.FP32)
+
+        xpu_device = "xpu:{}".format(rank)
         torch.xpu.set_device(xpu_device)
         model = model.xpu(xpu_device)
 
     if args.xpu:
-        model, optimizer = ipex.optimize(model, optimizer, dtype=torch.bfloat16)
+        model, optimizer = ipex.optimize(
+            model, optimizer, dtype=torch.bfloat16 if args.bf16 else torch.float32
+        )
     else:
         model.to(device)
 
@@ -814,6 +826,9 @@ def get_default_arguments():
         straight_through_weight=1,  # weight on traight through value
         num_devices=1,
         xpu=False,
+        tf32=0,
+        bf32=0,
+        bf16=0,
     )
     defaults.update(utils.model_defaults())
     defaults.update(utils.train_defaults())
