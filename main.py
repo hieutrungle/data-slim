@@ -249,6 +249,10 @@ def init_process(
     if args.xpu:
         import intel_extension_for_pytorch as ipex
         import oneccl_bindings_for_pytorch
+
+        os.environ["CCL_PROCESS_LAUNCHER"] = "torch"
+        os.environ["CCL_LOCAL_SIZE"] = str(world_size)
+        os.environ["CCL_LOCAL_RANK"] = str(rank)
     # information used for rank 0
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
