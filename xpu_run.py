@@ -183,7 +183,7 @@ def main_worker(abc, ngpus_per_node, args):
         dtype=torch.bfloat16 if args.bf16 else torch.float32,
     )
     if args.distributed:
-        model = DDP(
+        model = torch.nn.parallel.DistributedDataParallel(
             model,
             device_ids=[args.xpu],
             # output_device=rank,
