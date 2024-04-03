@@ -155,7 +155,7 @@ def run_cuda(args, rank, world_size):
     model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
 
     # use if model contains batchnorm.
-    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if args.xpu:
         if args.tf32:
             print("doing TF32 training")
@@ -173,7 +173,10 @@ def run_cuda(args, rank, world_size):
 
     if args.xpu:
         model, optimizer = ipex.optimize(
-            model, optimizer, dtype=torch.bfloat16 if args.bf16 else torch.float32
+            model=model,
+            optimizer=optimizer,
+            level="O1",
+            dtype=torch.bfloat16 if args.bf16 else torch.float32,
         )
     else:
         model.to(device)
