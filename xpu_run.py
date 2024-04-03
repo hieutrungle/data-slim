@@ -168,7 +168,7 @@ def get_default_arguments():
         dist_port="29500",
         dist_url="127.0.0.1",
         multiprocessing_distributed=True,
-        dist_backend="ccl"
+        dist_backend="ccl",
         num_devices=-1,
         world_size=-1,
         rank=-1,
