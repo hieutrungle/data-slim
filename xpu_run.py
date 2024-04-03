@@ -85,11 +85,6 @@ def run_main():
     else:
         # Simply call main_worker function
         main_worker(1, ngpus_per_node, args)
-    # if args.command == "train":
-
-    #     pass
-    # else:
-    #     pass
 
 
 def main_worker(abc, ngpus_per_node, args):
@@ -120,6 +115,82 @@ def main_worker(abc, ngpus_per_node, args):
 
     print("Use XPU: {}".format(args.xpu))
     args.xpu = "xpu:{}".format(args.xpu)
+
+    dataio = data_io.Dataio(args.batch_size, args.patch_size, args.data_shape)
+    train_loader, test_loader = get_dataset(args, dataio)
+
+    # Model Initialization
+    if args.model_type.lower().find("hierachical") != -1:
+        model = hierachical_res_2d.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("hier_mbconv") != -1:
+        model = hier_mbconv.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    elif args.model_type.lower().find("res_1") != -1:
+        model = res_conv2d_attn.VQCPVAE(
+            **utils.args_to_dict(args, utils.model_defaults().keys())
+        )
+    else:
+        raise ValueError(f"Invalid model type ({args.model_type}).")
+
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        betas=(0.9, 0.999),
+        eps=1e-08,
+        weight_decay=args.weight_decay,
+        amsgrad=False,
+    )
+
+    # Get data stats.
+    data_dir = ""
+    if args.data_path != "":
+        data_dir = (
+            Path(args.data_path).parent.absolute()
+            if os.path.isfile(args.data_path)
+            else args.data_path
+        )
+    else:
+        data_dir = (
+            Path(args.input_path).parent.absolute()
+            if args.command == "compress"
+            else args.input_path
+        )
+    print(f"data_dir: {data_dir}")
+    stats = utils.get_data_stats(args.data_type, data_dir, args.da_name)
+    logger.log(f"data statistics: {stats}")
+    model.set_standardizer_layer(stats["mean"], stats["std"] ** 2, 1e-6)
+
+    if args.tf32:
+        print("doing TF32 training")
+        torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.TF32)
+    elif args.bf32:
+        args.bf16 = 1
+        print("doing BF32 training")
+        torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.BF32)
+    else:
+        torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.FP32)
+
+    torch.xpu.set_device(args.xpu)
+    model.xpu(args.xpu)
+
+    model, optimizer = ipex.optimize(
+        model=model,
+        optimizer=optimizer,
+        level="O1",
+        dtype=torch.bfloat16 if args.bf16 else torch.float32,
+    )
+    if args.distributed:
+        model = DDP(
+            model,
+            device_ids=[args.xpu],
+            # output_device=rank,
+            find_unused_parameters=True,
+            broadcast_buffers=False,
+            bucket_cap_mb=200,
+        )
 
 
 def get_dataset(args, dataio):
