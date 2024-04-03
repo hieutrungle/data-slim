@@ -35,6 +35,10 @@ import intel_extension_for_pytorch as ipex
 import oneccl_bindings_for_pytorch
 
 
+torch._C._jit_set_profiling_mode(False)
+torch._C._jit_set_profiling_executor(False)
+
+
 def run_main():
 
     args = create_argparser()
@@ -176,6 +180,7 @@ def main_worker(abc, ngpus_per_node, args):
     torch.xpu.set_device(args.xpu)
     model.xpu(args.xpu)
 
+    model.train()
     model, optimizer = ipex.optimize(
         model=model,
         optimizer=optimizer,
