@@ -60,8 +60,6 @@ def run_main():
     else:
         torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.FP32)
 
-    backend = "ccl"
-
     if args.world_size == -1:
         mpi_world_size = int(os.environ.get("PMI_SIZE", -1))
 
@@ -92,7 +90,7 @@ def run_main():
     #     pass
 
 
-def main_worker(gpu, args):
+def main_worker(ngpus_per_node, args):
     print(f"worker")
 
 
@@ -170,6 +168,7 @@ def get_default_arguments():
         dist_port="29500",
         dist_url="127.0.0.1",
         multiprocessing_distributed=True,
+        dist_backend="ccl"
         num_devices=-1,
         world_size=-1,
         rank=-1,
