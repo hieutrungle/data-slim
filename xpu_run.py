@@ -84,7 +84,7 @@ def run_main():
         mp.spawn(main_worker, args=(ngpus_per_node, args), nprocs=ngpus_per_node)
     else:
         # Simply call main_worker function
-        main_worker(ngpus_per_node, args)
+        main_worker(1, ngpus_per_node, args)
     # if args.command == "train":
 
     #     pass
@@ -92,7 +92,7 @@ def run_main():
     #     pass
 
 
-def main_worker(ngpus_per_node, args):
+def main_worker(abc, ngpus_per_node, args):
     if args.distributed:
         if args.rank == -1:
             args.rank = int(os.environ["RANK"])
