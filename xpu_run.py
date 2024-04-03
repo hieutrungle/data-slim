@@ -72,6 +72,7 @@ def run_main():
             os.environ["WORLD_SIZE"] = os.environ.get("PMI_SIZE", -1)
             args.rank = int(os.environ.get("PMI_RANK", -1))
         args.world_size = int(os.environ.get("WORLD_SIZE", -1))
+
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
     ngpus_per_node = 1
     if args.multiprocessing_distributed:
@@ -168,6 +169,7 @@ def get_default_arguments():
         straight_through_weight=1,  # weight on traight through value
         dist_port="29500",
         dist_url="127.0.0.1",
+        multiprocessing_distributed=True,
         num_devices=-1,
         world_size=-1,
         rank=-1,
