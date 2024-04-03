@@ -182,7 +182,7 @@ def run_cuda(args, rank, world_size):
         model.to(device)
 
     model = DDP(
-        model, device_ids=[rank], output_device=rank, find_unused_parameters=True
+        model, device_ids=[xpu_device], output_device=rank, find_unused_parameters=True
     )
 
     # model = torch.compile(model)
