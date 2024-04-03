@@ -36,12 +36,13 @@ import oneccl_bindings_for_pytorch
 
 
 def run_main():
+
+    args = create_argparser()
+    utils.configure_args(args)
     if not args.xpu:
         print("You need to choose running on XPU.")
         sys.exit()
 
-    args = create_argparser()
-    utils.configure_args(args)
     logger.configure(dir="./tmp_logs")
     utils.log_args_and_device_info(args)
     [
