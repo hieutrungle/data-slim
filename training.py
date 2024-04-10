@@ -58,7 +58,11 @@ class TorchTrainer:
     def train_one_epoch(self, epoch_index):
         running_loss = 0.0
         scaler = torch.cuda.amp.GradScaler()
-        device = torch.device(f"cuda:{dist.get_rank()}")
+
+        if self.args.xpu:
+            device = torch.device(f"xpu:{dist.get_rank()}")
+        else:
+            device = torch.device(f"cuda:{dist.get_rank()}")
 
         for i, batch in enumerate(self.training_loader):
             x, mask = batch
@@ -100,7 +104,10 @@ class TorchTrainer:
             self.model.eval()
 
             # Disable gradient computation and reduce memory consumption.
-            device = torch.device(f"cuda:{dist.get_rank()}")
+            if self.args.xpu:
+                device = torch.device(f"xpu:{dist.get_rank()}")
+            else:
+                device = torch.device(f"cuda:{dist.get_rank()}")
             with torch.no_grad():
                 for i, batch in enumerate(self.validation_loader):
                     x, mask = batch
@@ -132,3 +139,49 @@ class TorchTrainer:
                     "model" + ".pt",
                 )
                 torch.save(self.model.state_dict(), model_path)
+
+    # def train_xpu(self, epochs):
+    #     best_vloss = float("inf")
+    #     for epoch in range(epochs):
+    #         logger.log("EPOCH {}:".format(epoch + 1))
+
+    #         # Make sure gradient tracking is on, and do a pass over the data
+    #         self.model.train(True)
+    #         avg_loss = self.train_one_epoch(epoch)
+
+    #         running_vloss = 0.0
+    #         self.model.eval()
+
+    #         # Disable gradient computation and reduce memory consumption.
+    #         device = torch.device(f"xpu:{dist.get_rank()}")
+    #         with torch.no_grad():
+    #             for i, batch in enumerate(self.validation_loader):
+    #                 x, mask = batch
+    #                 x = x.type(torch.float32)
+    #                 mask = mask.type(torch.float32)
+    #                 x, mask = x.to(device), mask.to(device)
+
+    #                 quantized_loss, x_hat, _ = self.model(x)
+    #                 x_hat = x_hat.type(torch.float32)
+    #                 x = x * mask
+    #                 x_hat = x_hat * mask
+    #                 mse_loss = F.mse_loss(x, x_hat)
+    #                 running_vloss = mse_loss * 3 + quantized_loss
+
+    #         avg_vloss = running_vloss / (i + 1)
+    #         logger.log("LOSS train {} valid {}".format(avg_loss, avg_vloss))
+
+    #         self.writer.add_scalars(
+    #             "Training vs. Validation Loss",
+    #             {"Training": avg_loss, "Validation": avg_vloss},
+    #             epoch + 1,
+    #         )
+    #         self.writer.flush()
+
+    #         if avg_vloss < best_vloss:
+    #             best_vloss = avg_vloss
+    #             model_path = os.path.join(
+    #                 self.args.model_path,
+    #                 "model_xpu" + ".pt",
+    #             )
+    #             torch.save(self.model.state_dict(), model_path)
