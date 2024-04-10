@@ -828,7 +828,7 @@ def get_default_arguments():
         model_path="./saved_models/model",
         use_fp16=False,
         verbose=False,
-        resume="",
+        resume=False,
         iter=-1,  # -1 means resume from the best model
         local_test=False,
         input_path="",  # a file if compress, a folder if decompress
