@@ -284,7 +284,10 @@ def run_main():
         backend = "ccl"
 
     if int(args.num_devices) == -1:
-        world_size = torch.cuda.device_count()
+        if args.xpu:
+            world_size = torch.xpu.device_count()
+        else:
+            world_size = torch.cuda.device_count()
     else:
         world_size = int(args.num_devices)
     print(f"world_size: {world_size}")
