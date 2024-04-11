@@ -283,7 +283,10 @@ def run_main():
         ]
         backend = "ccl"
 
-    world_size = int(args.num_devices)
+    if int(args.num_devices) == -1:
+        world_size = torch.cuda.device_count()
+    else:
+        world_size = int(args.num_devices)
 
     if args.command == "train":
 
