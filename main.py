@@ -209,12 +209,6 @@ def run_cuda(args, rank, world_size):
         model, train_loader, test_loader, optimizer, DEVICE, args
     )
     trainer.train(args.epochs)
-    # if not args.xpu:
-    #     logger.log("Training on GPU")
-    #     trainer.train(args.epochs)
-    # else:
-    #     logger.log("Training on XPU")
-    #     pass
 
     cleanup(rank)
 
