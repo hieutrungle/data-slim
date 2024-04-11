@@ -86,13 +86,13 @@ def get_dataset(args, dataio):
         sampler=train_sampler,
         batch_size=batch_size,
         pin_memory=True,
-        num_workers=4,
+        num_workers=1,
     )
     test_loader = torch.utils.data.DataLoader(
         test_ds,
         sampler=test_sampler,
         batch_size=batch_size,
-        num_workers=4,
+        num_workers=1,
     )
 
     return train_loader, test_loader
