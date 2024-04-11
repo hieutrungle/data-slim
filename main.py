@@ -287,6 +287,7 @@ def run_main():
         world_size = torch.cuda.device_count()
     else:
         world_size = int(args.num_devices)
+    print(f"world_size: {world_size}")
 
     if args.command == "train":
 
