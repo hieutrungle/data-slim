@@ -169,9 +169,10 @@ def run_cuda(args, rank, world_size):
         else:
             torch.xpu.set_fp32_math_mode(torch.xpu.FP32MathMode.FP32)
 
-        xpu_device = "xpu:{}".format(rank)
-        torch.xpu.set_device(xpu_device)
-        model = model.xpu(xpu_device)
+        device = "xpu:{}".format(rank)
+        torch.xpu.set_device(device)
+        model = model.xpu(device)
+        
 
     if args.xpu:
         model, optimizer = ipex.optimize(
@@ -185,7 +186,7 @@ def run_cuda(args, rank, world_size):
 
     model = DDP(
         model,
-        device_ids=[xpu_device],
+        device_ids=[device],
         output_device=rank,
         find_unused_parameters=True,
         broadcast_buffers=False,
